@@ -1,0 +1,8 @@
+{
+  "description": "MominAI",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "name": "MominAI"
+}

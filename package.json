@@ -1,0 +1,29 @@
+{
+  "name": "mominai",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "0.15.0",
+    "@webcontainer/api": "1.1.8",
+    "jszip": "3.10.1",
+    "path": "^0.12.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.2",
+    "stripe": "16.2.0",
+    "url": "^0.11.4",
+    "xterm": "5.3.0",
+    "xterm-addon-fit": "0.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "~5.8.2",
+    "vite": "^7.1.3"
+  }
+}
