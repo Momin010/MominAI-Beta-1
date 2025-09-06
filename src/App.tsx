@@ -1,109 +1,172 @@
 
+// 🚀 MOMINAI REVOLUTION - THE ULTIMATE AI DEVELOPMENT PLATFORM
+// CRUSHING ALL COMPETITORS WITH SUPERIOR ARCHITECTURE
 
-import React, { useState, useEffect } from 'react';
-import CustomCursor from './components/CustomCursor.tsx';
-import IDE from './IDE/App.tsx';
-import Loader from './components/Loader.tsx';
-import Dashboard from './components/Dashboard.tsx';
-import CheckoutPage from './components/CheckoutPage.tsx';
+import React, { useEffect, Suspense } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { useAppStore, usePerformanceStore, useKeyboardStore } from '@/stores/app-store'
 
-const App = () => {
-    // A single state to manage which view is active.
-    const [view, setView] = useState<'landing' | 'dashboard' | 'loading' | 'ide' | 'checkout'>('dashboard');
-    // State to hold the plan selected for checkout.
-    const [checkoutPlan, setCheckoutPlan] = useState<string | null>(null);
+// LAZY LOAD COMPONENTS FOR OPTIMAL PERFORMANCE
+const Dashboard = React.lazy(() => import('./components/Dashboard'))
+const IDE = React.lazy(() => import('./IDE/App'))
+const CheckoutPage = React.lazy(() => import('./components/CheckoutPage'))
+const Loader = React.lazy(() => import('./components/Loader'))
 
-    useEffect(() => {
-        // This effect runs once on initial load to determine the correct view from the URL.
-        const params = new URLSearchParams(window.location.search);
-        const plan = params.get('checkout');
+// LOADING COMPONENT
+const LoadingScreen: React.FC = () => (
+  <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto mb-4"></div>
+      <h2 className="text-2xl font-bold mb-2">MominAI Revolution</h2>
+      <p className="text-gray-400">Loading the future of development...</p>
+    </div>
+  </div>
+)
 
-        if (params.get('ide') === 'true') {
-            // If '?ide=true' is in the URL, start the loading sequence for the IDE.
-            setView('loading');
-            const timer = setTimeout(() => {
-                // After 4 seconds, switch from the loader to the IDE.
-                setView('ide');
-            }, 4000);
-            // Clean up the timer if the component unmounts.
-            return () => clearTimeout(timer);
-        } else if (params.get('dashboard') === 'true') {
-            // If '?dashboard=true' is in the URL, show the user's dashboard.
-            setView('dashboard');
-        } else if (plan) {
-            // If '?checkout=[plan]' is in the URL, show the checkout page.
-            setCheckoutPlan(plan);
-            setView('checkout');
-        }
-        else {
-            // If the URL doesn't specify a view, show the dashboard.
-            setView('dashboard');
-        }
-    }, []);
+// ERROR BOUNDARY
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
 
-    // This effect manages the styles of the root HTML element based on the current view.
-    useEffect(() => {
-        const rootEl = document.getElementById('root');
-        if (!rootEl) return;
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
 
-        if (view === 'ide') {
-            document.body.classList.add('ide-view');
-        } else {
-            document.body.classList.remove('ide-view');
-        }
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('MominAI Error:', error, errorInfo)
+  }
 
-        if (view === 'ide' || view === 'loading' || view === 'dashboard' || view === 'checkout') {
-            // For constrained views, lock the root to the viewport height.
-            rootEl.style.height = '100vh';
-            rootEl.style.overflow = 'hidden';
-        } else {
-            // For the landing page, allow the root to grow with its content and scroll.
-            rootEl.style.height = 'auto';
-            rootEl.style.overflow = 'visible';
-        }
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-red-900 text-white">
+          <div className="text-center">
+            <h1 className="text-4xl font-bold mb-4">Oops! Something went wrong</h1>
+            <p className="text-red-200 mb-4">
+              {this.state.error?.message || 'An unexpected error occurred'}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-semibold"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      )
+    }
 
-        // Cleanup function to reset styles when the component unmounts.
-        return () => {
-            document.body.classList.remove('ide-view');
-            if (rootEl) {
-                rootEl.style.height = 'auto';
-                rootEl.style.overflow = 'visible';
-            }
-        };
-    }, [view]);
+    return this.props.children
+  }
+}
 
-    // Navigate to the dashboard view on successful login. This causes a full page reload.
-    const handleLoginSuccess = () => {
-        window.location.href = '/?dashboard=true';
-    };
+// REVOLUTIONARY APP COMPONENT
+function App() {
+  const { recordMetric } = usePerformanceStore()
+  const { handleKeyPress, registerShortcut } = useKeyboardStore()
 
-    // Navigate back to the dashboard on logout. This also reloads the page.
-    const handleLogout = () => {
-        window.location.href = '/?dashboard=true';
-    };
+  // PERFORMANCE MONITORING
+  useEffect(() => {
+    const startTime = performance.now()
+    
+    // Record app load time
+    const handleLoad = () => {
+      const loadTime = performance.now() - startTime
+      recordMetric('appLoadTime', loadTime)
+    }
 
-    // A helper function to render the correct component based on the current view state.
-    const renderContent = () => {
-        switch (view) {
-            case 'loading':
-                return <Loader />;
-            case 'ide':
-                return <IDE onLogout={handleLogout} />;
-            case 'dashboard':
-                return <Dashboard onLogout={handleLogout} />;
-            case 'checkout':
-                return <CheckoutPage plan={checkoutPlan} />;
-            default:
-                return <Dashboard onLogout={handleLogout} />;
-        }
-    };
+    // Monitor memory usage
+    const monitorMemory = () => {
+      if ('memory' in performance) {
+        const memory = (performance as any).memory
+        recordMetric('memoryUsage', memory.usedJSHeapSize)
+      }
+    }
 
-    return (
-        <>
-            <CustomCursor />
-            {renderContent()}
-        </>
-    );
-};
+    window.addEventListener('load', handleLoad)
+    
+    // Monitor performance every 30 seconds
+    const performanceInterval = setInterval(monitorMemory, 30000)
 
-export default App;
+    return () => {
+      window.removeEventListener('load', handleLoad)
+      clearInterval(performanceInterval)
+    }
+  }, [recordMetric])
+
+  // GLOBAL KEYBOARD SHORTCUTS
+  useEffect(() => {
+    // Register global shortcuts
+    registerShortcut('Ctrl+k', () => {
+      console.log('Command palette opened')
+    })
+
+    registerShortcut('Ctrl+Shift+p', () => {
+      console.log('AI chat opened')
+    })
+
+    registerShortcut('Ctrl+`', () => {
+      console.log('Terminal toggled')
+    })
+
+    // Global keyboard event handler
+    const handleKeyDown = (event: KeyboardEvent) => {
+      handleKeyPress(event)
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [registerShortcut, handleKeyPress])
+
+  // PWA INSTALLATION PROMPT
+  useEffect(() => {
+    let deferredPrompt: any
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault()
+      deferredPrompt = e
+      console.log('PWA install prompt available')
+    }
+
+    const handleAppInstalled = () => {
+      console.log('PWA installed successfully')
+      deferredPrompt = null
+    }
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
+    }
+  }, [])
+
+  return (
+    <ErrorBoundary>
+      <Router>
+        <div className="app min-h-screen">
+          <Suspense fallback={<LoadingScreen />}>
+            <Routes>
+              <Route path="/" element={<Dashboard onLogout={() => {}} />} />
+              <Route path="/ide" element={<IDE onLogout={() => {}} />} />
+              <Route path="/checkout" element={<CheckoutPage plan={null} />} />
+              <Route path="/loading" element={<Loader />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </div>
+      </Router>
+    </ErrorBoundary>
+  )
+}
+
+export default App

@@ -1,6 +1,6 @@
 // /api/generate.ts
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Configure the Vercel nodejs runtime
 export const config = {

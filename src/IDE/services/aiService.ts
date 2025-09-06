@@ -1,6 +1,6 @@
 
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } from '../types';
 
 const getAI = (): GoogleGenAI => {
