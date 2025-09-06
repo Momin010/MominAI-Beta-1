@@ -1,6 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react-swc'
-import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 export default defineConfig(({ mode }) => {
@@ -8,46 +7,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [
-      react(),
-      VitePWA({
-        registerType: 'autoUpdate',
-        workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-          runtimeCaching: [
-            {
-              urlPattern: /^https:\/\/api\./,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-cache',
-                expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 60 * 60 * 24 // 24 hours
-                }
-              }
-            }
-          ]
-        },
-        manifest: {
-          name: 'MominAI Revolution',
-          short_name: 'MominAI',
-          description: 'The Ultimate AI-Powered Development Platform',
-          theme_color: '#6366f1',
-          background_color: '#0f0f23',
-          display: 'standalone',
-          icons: [
-            {
-              src: '/icon.svg',
-              sizes: '192x192',
-              type: 'image/svg+xml'
-            },
-            {
-              src: '/icon.svg',
-              sizes: '512x512',
-              type: 'image/svg+xml'
-            }
-          ]
-        }
-      })
+      react()
     ],
     define: {
       'process.env.OPENAI_API_KEY': JSON.stringify(env.OPENAI_API_KEY),
