@@ -48,7 +48,11 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: '0.0.0.0',
       port: 12000,
-      cors: true
+      cors: true,
+      headers: {
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+      }
     },
     build: {
       target: 'esnext',
