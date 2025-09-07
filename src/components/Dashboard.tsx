@@ -105,7 +105,7 @@ const UserProfileDropdown: React.FC<{onLogout: () => void}> = ({ onLogout }) => 
     return (
         <div className="relative" ref={dropdownRef}>
             <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 p-1 rounded-full hover:bg-white-10 transition-colors bg-transparent border-none">
-                <img src="/icon.svg" alt="User Avatar" className="w-8 h-8 rounded-full"/>
+                <img src="https://i.pinimg.com/736x/2b/49/22/2b492229bd247aa80340461018673d29.jpg" alt="User Avatar" className="w-8 h-8 rounded-full"/>
             </button>
             {isOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-[var(--background-secondary)] rounded-lg shadow-2xl py-2" style={{animation: 'scaleIn 0.1s ease-out'}}>
@@ -207,7 +207,7 @@ const ProfileSettings = () => (
         <h3 className="text-xl font-bold mb-6">Public Profile</h3>
         <form className="flex flex-col gap-6 max-w-lg">
              <div className="flex items-center gap-4">
-                 <img src="/icon.svg" alt="User Avatar" className="w-16 h-16 rounded-full"/>
+                 <img src="https://i.pinimg.com/736x/2b/49/22/2b492229bd247aa80340461018673d29.jpg" alt="User Avatar" className="w-16 h-16 rounded-full"/>
                  <button className="bg-transparent border border-[var(--border-color)] px-4 py-2 rounded-lg text-sm font-semibold hover:bg-white-20 transition-colors">Upload new picture</button>
              </div>
              <div className="grid grid-cols-2 gap-4">
