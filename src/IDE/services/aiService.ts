@@ -4,10 +4,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } from '../types';
 
 const getAI = (): GoogleGenerativeAI => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key not found. Please ensure the API_KEY environment variable is set.");
+  if (!import.meta.env.VITE_API_KEY) {
+    throw new Error("API Key not found. Please ensure the VITE_API_KEY environment variable is set.");
   }
-  return new GoogleGenerativeAI(process.env.API_KEY);
+  return new GoogleGenerativeAI(import.meta.env.VITE_API_KEY);
 };
 
 
