@@ -1,24 +1,22 @@
 
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from 'openai';
 import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } from '../types';
 
-const getAI = (): GoogleGenerativeAI => {
+/// <reference types="vite/client" />
+
+const getAI = (): OpenAI => {
   if (!import.meta.env.VITE_API_KEY) {
     throw new Error("API Key not found. Please ensure the VITE_API_KEY environment variable is set.");
   }
-  return new GoogleGenerativeAI(import.meta.env.VITE_API_KEY);
+  return new OpenAI({ apiKey: import.meta.env.VITE_API_KEY });
 };
 
 
 export async function* streamAIResponse(prompt: string): AsyncGenerator<string> {
     try {
         const ai = getAI();
-        const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        const responseStream = await model.generateContentStream({
-            contents: [{ parts: [{ text: prompt }] }],
-            config: {
-                systemInstruction: `You are an expert pair programming assistant in a web-based IDE. Your response format depends entirely on the user's request.
+        const systemInstruction = `You are an expert pair programming assistant in a web-based IDE. Your response format depends entirely on the user's request.
 
 **Scenario 1: The user asks to write, create, update, or modify code.**
 In this case, you MUST ONLY output a single, raw JSON object. Do not include markdown fences (\`\`\`json) or any other text, conversation, or explanation before or after the JSON object. Your entire response must be the JSON object itself.
@@ -36,12 +34,19 @@ The JSON object must have this exact structure:
 }
 
 **Scenario 2: The user asks a general question, for an explanation, or anything that does not involve changing files.**
-In this case, respond with a helpful, friendly answer in standard Markdown format. Do NOT use the JSON format for these requests.`,
-            }
+In this case, respond with a helpful, friendly answer in standard Markdown format. Do NOT use the JSON format for these requests.`;
+
+        const response = await ai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+                { role: 'system', content: systemInstruction },
+                { role: 'user', content: prompt }
+            ],
+            stream: true
         });
 
-        for await (const chunk of responseStream) {
-            yield chunk.text;
+        for await (const chunk of response) {
+            yield chunk.choices[0]?.delta?.content || '';
         }
 
     } catch (error) {
@@ -54,18 +59,18 @@ In this case, respond with a helpful, friendly answer in standard Markdown forma
 export const generateCodeForFile = async (userPrompt: string, fileName: string): Promise<string> => {
     try {
         const ai = getAI();
-        const fullPrompt = `You are an expert programmer. A user wants to create a file named "${fileName}". 
-Based on their request, generate the complete, production-ready code for this file. 
-Do not add any conversational text, explanations, or markdown formatting like \`\`\` around the code. 
+        const fullPrompt = `You are an expert programmer. A user wants to create a file named "${fileName}".
+Based on their request, generate the complete, production-ready code for this file.
+Do not add any conversational text, explanations, or markdown formatting like \`\`\` around the code.
 Only output the raw code for the file content.
 User's request: "${userPrompt}"`;
 
-        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-            contents: [{ parts: [{ text: fullPrompt }] }]
+        const response = await ai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [{ role: 'user', content: fullPrompt }]
         });
-        
-        return response.text.trim();
+
+        return response.choices[0].message.content.trim();
 
     } catch (error) {
         console.error("Error generating file with AI:", error);
@@ -88,13 +93,14 @@ Code before cursor:
 ---
 ${codeBeforeCursor}`;
 
-        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-            contents: [{ parts: [{ text: fullPrompt }] }],
-            config: { temperature: 0.2, maxOutputTokens: 100, thinkingConfig: { thinkingBudget: 0 } }
+        const response = await ai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [{ role: 'user', content: fullPrompt }],
+            temperature: 0.2,
+            max_tokens: 100
         });
 
-        return response.text;
+        return response.choices[0].message.content;
 
     } catch (error) {
         console.error("Error getting inline code suggestion:", error);
@@ -129,35 +135,29 @@ ${fileContents}
 
 Analyze the error and the code. Determine which file is causing the error and correct the bug.
 Provide a detailed, step-by-step explanation of the bug and the fix.
-Provide your response as a JSON object.
+Provide your response as a JSON object with the following structure:
+{
+  "filePath": "string",
+  "fixedCode": "string",
+  "explanation": "A brief, one-sentence summary of the fix.",
+  "detailedExplanation": "A detailed, step-by-step explanation of the original problem, the root cause, and how the new code fixes it. Use Markdown."
+}
 Ensure "fixedCode" contains the complete content for the entire file.`;
-    
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "object",
-                properties: {
-                    filePath: { type: "string" },
-                    fixedCode: { type: "string" },
-                    explanation: { type: "string", description: "A brief, one-sentence summary of the fix." },
-                    detailedExplanation: { type: "string", description: "A detailed, step-by-step explanation of the original problem, the root cause, and how the new code fixes it. Use Markdown." },
-                },
-                required: ['filePath', 'fixedCode', 'explanation', 'detailedExplanation']
-            }
-        }
+
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
     });
 
     try {
-        const result: AIFixResponse = JSON.parse(response.text.trim());
+        const result: AIFixResponse = JSON.parse(response.choices[0].message.content.trim());
         if (!result.filePath || typeof result.fixedCode === 'undefined' || !result.detailedExplanation) {
             throw new Error("AI response is missing required fields.");
         }
         return result;
     } catch (e) {
-        console.error("Failed to parse AI fix response:", response.text, e);
+        console.error("Failed to parse AI fix response:", response.choices[0].message.content, e);
         throw new Error("AI returned an invalid response. Could not apply fix.");
     }
 }
@@ -180,54 +180,40 @@ Based on the error, provide the single, corrected line of code for line ${proble
 Do NOT provide explanations, context, or code fences. Your response must be ONLY the corrected line of code.
 For example, if the original line is "console.log(myVar)" and the fix is to remove it, return an empty string. If the fix is to change it to "console.info(myVar)", return exactly that.`;
 
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }]
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
     });
-    return response.text; // Return the raw text which should be just the line
+    return response.choices[0].message.content; // Return the raw text which should be just the line
 };
 
 export const getCodeExplanation = async (code: string): Promise<string> => {
     const ai = getAI();
     const prompt = `Explain the following code snippet concisely. Format the response as Markdown. \n\n\`\`\`\n${code}\n\`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text;
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content;
 };
 
 export const analyzeCodeForBugs = async (code: string): Promise<Omit<Diagnostic, 'source'>[]> => {
     const ai = getAI();
     const prompt = `Analyze the following code for potential bugs, logical errors, or anti-patterns.
 Do not report stylistic issues. Focus on actual problems that could lead to runtime errors or incorrect behavior.
-Respond with a JSON array of issues.
+Respond with a JSON array of issues, where each issue is an object with line, startCol, endCol, message, severity.
 
 \`\`\`
 ${code}
 \`\`\`
 `;
     try {
-        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-            contents: [{ parts: [{ text: prompt }] }],
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: "array",
-                    items: {
-                        type: "object",
-                        properties: {
-                            line: { type: "integer" },
-                            startCol: { type: "integer" },
-                            endCol: { type: "integer" },
-                            message: { type: "string" },
-                            severity: { type: "string", enum: ['error', 'warning', 'info'] },
-                        },
-                        required: ['line', 'startCol', 'endCol', 'message', 'severity']
-                    }
-                }
-            }
+        const response = await ai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' }
         });
-        return JSON.parse(response.text.trim());
+        return JSON.parse(response.choices[0].message.content.trim());
     } catch (error) {
         console.error("AI Bug Analysis failed:", error);
         return [];
@@ -242,9 +228,11 @@ Code:
 \`\`\`
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.replace(/```mermaid\n|```/g, '').trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.replace(/```mermaid\n|```/g, '').trim();
 };
 
 export const generateTestFile = async (code: string, filePath: string): Promise<string> => {
@@ -256,9 +244,11 @@ Code to test:
 \`\`\`
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const optimizeCss = async (css: string): Promise<string> => {
@@ -269,9 +259,11 @@ CSS to optimize:
 \`\`\`css
 ${css}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const generateCommitMessage = async (files: {path: string, content: string}[]): Promise<string> => {
@@ -283,9 +275,11 @@ The message should start with a type (e.g., feat, fix, chore), followed by a con
 ${fileContents}
 \`\`\`
 `;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const generateRegex = async (description: string): Promise<string> => {
@@ -293,9 +287,11 @@ export const generateRegex = async (description: string): Promise<string> => {
     const prompt = `Generate a JavaScript-compatible regular expression for the following description.
 Only output the raw regex pattern. Do not include slashes, flags, or any other text.
 Description: "${description}"`;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const generateDocsForCode = async (code: string, filePath: string): Promise<string> => {
@@ -305,9 +301,11 @@ Explain the purpose of the file, its functions/classes, parameters, and return v
 \`\`\`
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const generateTheme = async (description: string): Promise<Record<string, string>> => {
@@ -315,24 +313,12 @@ export const generateTheme = async (description: string): Promise<Record<string,
     const prompt = `Generate a set of CSS variables for a web IDE theme based on this description: "${description}".
 Provide a JSON object with keys like "--text-primary", "--ui-panel-bg", "--accent-primary", etc., and their corresponding color values.
 The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-panel-bg-heavy, --ui-border, --ui-hover-bg, --accent-primary.`;
-     const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "object",
-                properties: {
-                    '--text-primary': { type: "string" }, '--text-secondary': { type: "string" },
-                    '--ui-panel-bg': { type: "string" }, '--ui-panel-bg-heavy': { type: "string" },
-                    '--ui-border': { type: "string" }, '--ui-hover-bg': { type: "string" },
-                    '--accent-primary': { type: "string" },
-                },
-                 required: ['--text-primary', '--text-secondary', '--ui-panel-bg', '--ui-panel-bg-heavy', '--ui-border', '--ui-hover-bg', '--accent-primary']
-            }
-        }
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
     });
-    return JSON.parse(response.text.trim());
+    return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const migrateCode = async (code: string, from: string, to: string): Promise<string> => {
@@ -342,21 +328,28 @@ Only output the raw, converted code. Do not add any conversational text or markd
 \`\`\`${from}
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const generateCodeFromImage = async (base64Image: string, prompt: string): Promise<string> => {
     const ai = getAI();
-    const imagePart = { inlineData: { mimeType: 'image/jpeg', data: base64Image } };
-    const textPart = { text: `Generate the HTML and CSS code for the UI in this image. The user provides this hint: "${prompt}". Respond with a single HTML file containing a <style> tag for the CSS. Do not add any conversational text, explanations, or markdown formatting.` };
-    
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [imagePart, textPart] }]
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: `Generate the HTML and CSS code for the UI in this image. The user provides this hint: "${prompt}". Respond with a single HTML file containing a <style> tag for the CSS. Do not add any conversational text, explanations, or markdown formatting.` },
+                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
+                ]
+            }
+        ]
     });
-    return response.text.trim();
+    return response.choices[0].message.content.trim();
 };
 
 export const scaffoldProject = async (prompt: string): Promise<Record<string, string>> => {
@@ -365,47 +358,28 @@ export const scaffoldProject = async (prompt: string): Promise<Record<string, st
 Respond with a JSON object where keys are the full file paths (e.g., "/src/components/Button.jsx") and values are the file content.
 User's prompt: "${prompt}"`;
 
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: fullPrompt }] }],
-        config: { responseMimeType: "application/json" }
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: fullPrompt }],
+        response_format: { type: 'json_object' }
     });
-    return JSON.parse(response.text.trim());
+    return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const analyzeDependencies = async (packageJsonContent: string): Promise<DependencyReport> => {
     const ai = getAI();
     const prompt = `Analyze this package.json content. For each dependency and devDependency, determine if it is outdated (assume today's date) or has known vulnerabilities.
 Provide a brief summary for major version updates.
-Respond with a JSON object matching the specified schema.
+Respond with a JSON object with dependencies and devDependencies arrays.
 \`\`\`json
 ${packageJsonContent}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "object",
-                properties: {
-                    dependencies: {
-                        type: "array",
-                        items: {
-                            type: "object", properties: { name: { type: "string" }, version: { type: "string" }, latest: { type: "string" }, status: { type: "string", enum: ['ok', 'outdated', 'vulnerable'] }, summary: { type: "string", description: 'Summary of changes if a major update is available.' } }, required: ['name', 'version', 'status']
-                        }
-                    },
-                    devDependencies: {
-                        type: "array",
-                        items: {
-                            type: "object", properties: { name: { type: "string" }, version: { type: "string" }, latest: { type: "string" }, status: { type: "string", enum: ['ok', 'outdated', 'vulnerable'] }, summary: { type: "string", description: 'Summary of changes if a major update is available.' } }, required: ['name', 'version', 'status']
-                        }
-                    }
-                }
-            }
-        }
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
     });
-    return JSON.parse(response.text.trim());
+    return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const generateCodeFromFigma = async (fileUrl: string, token: string, userPrompt: string): Promise<string> => {
@@ -417,44 +391,30 @@ User Prompt: "${userPrompt}"
 Based on the user's prompt and the context of a modern web design, generate a single, complete HTML file with embedded CSS in a <style> tag that accurately represents the described design.
 Focus on creating a clean, responsive, and semantic structure.
 Only output the raw HTML code. Do not include any explanations or markdown formatting.`;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
-    return response.text.trim();
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }]
+    });
+    return response.choices[0].message.content.trim();
 };
 
 export const reviewCode = async (code: string): Promise<Omit<Diagnostic, 'source'>[]> => {
     const ai = getAI();
     const prompt = `You are an expert senior software engineer performing a code review. Analyze the following code for issues related to quality, best practices, performance, security, and potential bugs.
 Do not report stylistic issues like missing semicolons unless they cause functional problems. Focus on substantive issues.
-Respond with a JSON array of review comments, where each comment is an object.
+Respond with a JSON array of review comments, where each comment is an object with line, startCol, endCol, message, severity.
 
 Code to review:
 \`\`\`
 ${code}
 \`\`\`
 `;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "array",
-                items: {
-                    type: "object",
-                    properties: {
-                        line: { type: "integer" },
-                        startCol: { type: "integer", description: "The starting column, defaulting to 1 if not applicable." },
-                        endCol: { type: "integer", description: "The ending column, spanning the full line if not applicable." },
-                        message: { type: "string", description: "Your detailed review comment for this line." },
-                        severity: { type: "string", enum: ['error', 'warning', 'info'], description: "'error' for critical issues, 'warning' for suggestions, 'info' for minor notes." },
-                    },
-                    required: ['line', 'startCol', 'endCol', 'message', 'severity']
-                }
-            }
-        }
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
     });
-    return JSON.parse(response.text.trim());
+    return JSON.parse(response.choices[0].message.content.trim());
 };
 
 
@@ -462,22 +422,12 @@ export const deployProject = async (): Promise<{ url: string; success: boolean; 
     const ai = getAI();
     const prompt = `Simulate a successful deployment of a static web project. Generate a realistic-looking but fake deployment URL on a platform like Vercel or Netlify.
 Respond with a JSON object containing a "url" and a "message".`;
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "object",
-                properties: {
-                    url: { type: "string" },
-                    message: { type: "string" },
-                },
-                required: ['url', 'message']
-            }
-        }
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
     });
-    const result = JSON.parse(response.text.trim());
+    const result = JSON.parse(response.choices[0].message.content.trim());
     return { ...result, success: true };
 };
 
@@ -489,9 +439,9 @@ export const updateCssInProject = async (
     const ai = getAI();
     const cssFiles = files.filter(f => f.path.endsWith('.css'));
     const htmlFilesWithStyle = files.filter(f => f.path.endsWith('.html') && f.content.includes('<style>'));
-    
+
     let contextFiles = [...cssFiles, ...htmlFilesWithStyle];
-    
+
     if (contextFiles.length === 0) {
         const firstHtmlFile = files.find(f => f.path.endsWith('.html'));
         if (!firstHtmlFile) {
@@ -520,23 +470,13 @@ Your task is to intelligently update the correct file.
 4.  **Respond with JSON:** Provide a JSON object containing the path of the single file you chose to modify (\`filePath\`) and the complete, new content of that file (\`updatedCode\`).
 `;
 
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "object",
-                properties: {
-                    filePath: { type: "string" },
-                    updatedCode: { type: "string" },
-                },
-                required: ['filePath', 'updatedCode']
-            }
-        }
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
     });
 
-    return JSON.parse(response.text.trim());
+    return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const generateShellCommand = async (prompt: string): Promise<string> => {
@@ -545,10 +485,10 @@ export const generateShellCommand = async (prompt: string): Promise<string> => {
 Only output the raw, executable command. Do not add any conversational text, explanations, or markdown formatting.
 User's request: "${prompt}"`;
 
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-        contents: [{ parts: [{ text: fullPrompt }] }]
+    const response = await ai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: fullPrompt }]
     });
 
-    return response.text.trim();
+    return response.choices[0].message.content.trim();
 };
