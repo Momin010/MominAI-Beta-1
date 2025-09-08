@@ -112,7 +112,7 @@ interface IDEWorkspaceProps {
 }
 
 const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
-    const { isLoading: isWcLoading, error, serverUrl } = useWebContainer();
+    const { isLoading: isWcLoading, error, serverUrl, isCrossOriginIsolated } = useWebContainer();
     const { fs, isLoading: isFsLoading, updateNode, createNode, deleteNode, renameNode, moveNode } = useFileSystem();
     const { registerCommand } = useCommandPalette();
     
@@ -306,11 +306,32 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
     }
 
     if (error) {
+        const isCrossOriginError = error.includes('cross-origin') || error.includes('SharedArrayBuffer') || error.includes('COEP') || error.includes('COOP');
+
         return (
             <div className="w-screen h-screen flex flex-col items-center justify-center bg-red-900/50 text-white p-4">
-                <h2 className="text-2xl font-bold mb-4">Error</h2>
-                <p className="text-center mb-4">Could not initialize the development environment.</p>
-                <pre className="bg-black/50 p-4 rounded-lg text-sm max-w-2xl overflow-auto">{error}</pre>
+                <h2 className="text-2xl font-bold mb-4">Environment Setup Required</h2>
+                {isCrossOriginError ? (
+                    <div className="text-center mb-4 max-w-2xl">
+                        <p className="mb-4">This IDE requires cross-origin isolation to run securely. Please ensure:</p>
+                        <ul className="text-left list-disc list-inside space-y-2 bg-black/30 p-4 rounded-lg">
+                            <li>Your browser supports SharedArrayBuffer (Chrome 88+, Firefox 79+, Edge 88+)</li>
+                            <li>The page is served with proper security headers</li>
+                            <li>No other tabs from different origins are open</li>
+                        </ul>
+                        <p className="mt-4 text-sm text-gray-300">
+                            Try refreshing the page or opening it in a new browser window.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="text-center mb-4">
+                        <p>Could not initialize the development environment.</p>
+                    </div>
+                )}
+                <details className="bg-black/50 p-4 rounded-lg text-sm max-w-2xl">
+                    <summary className="cursor-pointer">Technical Details</summary>
+                    <pre className="mt-2 overflow-auto">{error}</pre>
+                </details>
             </div>
         );
     }
@@ -338,7 +359,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                     addNotification={addNotification}
                 />
 
-                {!isZenMode && <TitleBar onTogglePanel={togglePanel} panelVisibility={panelVisibility} onLogout={onLogout} onClose={onClose} />}
+                {!isZenMode && <TitleBar onTogglePanel={togglePanel} panelVisibility={panelVisibility} onLogout={onLogout} onClose={onClose} isCrossOriginIsolated={isCrossOriginIsolated} />}
 
                 {/* New AI-focused layout */}
                 <div className="flex-grow flex min-h-0 gap-2">

@@ -11,6 +11,7 @@ interface WebContainerContextType {
     error: string | null;
     fs: WebContainerType['fs'] | null;
     runCommand: (command: string, args: string[]) => Promise<void>;
+    isCrossOriginIsolated: boolean;
 }
 
 const WebContainerContext = createContext<WebContainerContextType | undefined>(undefined);
@@ -35,9 +36,22 @@ export const WebContainerProvider: React.FC<{ children: ReactNode }> = ({ childr
             if (isBooted.current) return;
             isBooted.current = true;
 
+            // Check for cross-origin isolation requirements
+            const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+            const isIsolated = self.crossOriginIsolated;
+
+            console.log("SharedArrayBuffer available:", hasSharedArrayBuffer);
+            console.log("Cross-origin isolated:", isIsolated);
+
+            if (!hasSharedArrayBuffer || !isIsolated) {
+                const errorMsg = "WebContainer requires cross-origin isolation. Please ensure your browser supports SharedArrayBuffer and the page is served with proper COEP/COOP headers.";
+                console.error(errorMsg);
+                setError(errorMsg);
+                setIsLoading(false);
+                return;
+            }
+
             try {
-                console.log("SharedArrayBuffer available:", typeof SharedArrayBuffer !== 'undefined');
-                console.log("Cross-origin isolated:", self.crossOriginIsolated);
                 console.log("Booting WebContainer...");
                 const wc = await WebContainer.boot();
                 setWebContainer(wc);
@@ -54,16 +68,19 @@ export const WebContainerProvider: React.FC<{ children: ReactNode }> = ({ childr
                     console.error("WebContainer Error:", err);
                     setError(err.message);
                 });
-                
+
                 // UI is ready to be shown, setup will continue in the terminal
                 setIsLoading(false);
 
             } catch (err) {
                 console.error("Failed to initialize WebContainer:", err);
+                let errorMsg = err instanceof Error ? err.message : String(err);
+
                 if (err instanceof Error && err.name === 'DataCloneError') {
-                    console.error("DataCloneError detected: This may be due to missing cross-origin isolation headers. Check SharedArrayBuffer support and crossOriginIsolated status.");
+                    errorMsg = "DataCloneError: Cross-origin isolation may not be properly configured. Please check that COEP and COOP headers are set correctly.";
                 }
-                setError(err instanceof Error ? err.message : String(err));
+
+                setError(errorMsg);
                 setIsLoading(false);
             }
         };
@@ -88,6 +105,7 @@ export const WebContainerProvider: React.FC<{ children: ReactNode }> = ({ childr
         error,
         fs: webContainer?.fs || null,
         runCommand,
+        isCrossOriginIsolated: typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated,
     };
 
     return (

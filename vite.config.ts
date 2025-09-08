@@ -64,7 +64,9 @@ export default defineConfig(({ mode }) => {
             'monaco': ['monaco-editor', '@monaco-editor/react'],
             'ai-models': ['openai', '@anthropic-ai/sdk', '@google/generative-ai'],
             'ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs'],
-            'utils': ['lodash-es', 'date-fns', 'uuid', 'fuse.js']
+            'utils': ['lodash-es', 'date-fns', 'uuid', 'fuse.js'],
+            'webcontainer': ['@webcontainer/api'],
+            'terminal': ['xterm', '@xterm/addon-fit', '@xterm/addon-web-links', '@xterm/addon-search']
           }
         }
       }
@@ -77,10 +79,12 @@ export default defineConfig(({ mode }) => {
         '@monaco-editor/react',
         'xterm',
         '@xterm/addon-fit',
+        '@xterm/addon-web-links',
+        '@xterm/addon-search',
         'socket.io-client',
-        'zustand'
-      ],
-      exclude: ['@webcontainer/api']
+        'zustand',
+        '@webcontainer/api'
+      ]
     }
   }
 })
