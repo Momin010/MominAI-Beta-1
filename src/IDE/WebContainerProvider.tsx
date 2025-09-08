@@ -60,6 +60,9 @@ export const WebContainerProvider: React.FC<{ children: ReactNode }> = ({ childr
 
             } catch (err) {
                 console.error("Failed to initialize WebContainer:", err);
+                if (err instanceof Error && err.name === 'DataCloneError') {
+                    console.error("DataCloneError detected: This may be due to missing cross-origin isolation headers. Check SharedArrayBuffer support and crossOriginIsolated status.");
+                }
                 setError(err instanceof Error ? err.message : String(err));
                 setIsLoading(false);
             }
