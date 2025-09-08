@@ -14,7 +14,7 @@ const getAI = (): GoogleGenerativeAI => {
 export async function* streamAIResponse(prompt: string): AsyncGenerator<string> {
     try {
         const ai = getAI();
-        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
         const responseStream = await model.generateContentStream({
             contents: [{ parts: [{ text: prompt }] }],
             config: {
@@ -60,7 +60,7 @@ Do not add any conversational text, explanations, or markdown formatting like \`
 Only output the raw code for the file content.
 User's request: "${userPrompt}"`;
 
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
             contents: [{ parts: [{ text: fullPrompt }] }]
         });
@@ -88,7 +88,7 @@ Code before cursor:
 ---
 ${codeBeforeCursor}`;
 
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
             contents: [{ parts: [{ text: fullPrompt }] }],
             config: { temperature: 0.2, maxOutputTokens: 100, thinkingConfig: { thinkingBudget: 0 } }
@@ -132,7 +132,7 @@ Provide a detailed, step-by-step explanation of the bug and the fix.
 Provide your response as a JSON object.
 Ensure "fixedCode" contains the complete content for the entire file.`;
     
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }],
         config: {
@@ -180,7 +180,7 @@ Based on the error, provide the single, corrected line of code for line ${proble
 Do NOT provide explanations, context, or code fences. Your response must be ONLY the corrected line of code.
 For example, if the original line is "console.log(myVar)" and the fix is to remove it, return an empty string. If the fix is to change it to "console.info(myVar)", return exactly that.`;
 
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }]
     });
@@ -190,7 +190,7 @@ For example, if the original line is "console.log(myVar)" and the fix is to remo
 export const getCodeExplanation = async (code: string): Promise<string> => {
     const ai = getAI();
     const prompt = `Explain the following code snippet concisely. Format the response as Markdown. \n\n\`\`\`\n${code}\n\`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text;
 };
@@ -206,7 +206,7 @@ ${code}
 \`\`\`
 `;
     try {
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
             contents: [{ parts: [{ text: prompt }] }],
             config: {
@@ -242,7 +242,7 @@ Code:
 \`\`\`
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.replace(/```mermaid\n|```/g, '').trim();
 };
@@ -256,7 +256,7 @@ Code to test:
 \`\`\`
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -269,7 +269,7 @@ CSS to optimize:
 \`\`\`css
 ${css}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -283,7 +283,7 @@ The message should start with a type (e.g., feat, fix, chore), followed by a con
 ${fileContents}
 \`\`\`
 `;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -293,7 +293,7 @@ export const generateRegex = async (description: string): Promise<string> => {
     const prompt = `Generate a JavaScript-compatible regular expression for the following description.
 Only output the raw regex pattern. Do not include slashes, flags, or any other text.
 Description: "${description}"`;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -305,7 +305,7 @@ Explain the purpose of the file, its functions/classes, parameters, and return v
 \`\`\`
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -315,7 +315,7 @@ export const generateTheme = async (description: string): Promise<Record<string,
     const prompt = `Generate a set of CSS variables for a web IDE theme based on this description: "${description}".
 Provide a JSON object with keys like "--text-primary", "--ui-panel-bg", "--accent-primary", etc., and their corresponding color values.
 The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-panel-bg-heavy, --ui-border, --ui-hover-bg, --accent-primary.`;
-     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+     const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }],
         config: {
@@ -342,7 +342,7 @@ Only output the raw, converted code. Do not add any conversational text or markd
 \`\`\`${from}
 ${code}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -352,7 +352,7 @@ export const generateCodeFromImage = async (base64Image: string, prompt: string)
     const imagePart = { inlineData: { mimeType: 'image/jpeg', data: base64Image } };
     const textPart = { text: `Generate the HTML and CSS code for the UI in this image. The user provides this hint: "${prompt}". Respond with a single HTML file containing a <style> tag for the CSS. Do not add any conversational text, explanations, or markdown formatting.` };
     
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [imagePart, textPart] }]
     });
@@ -365,7 +365,7 @@ export const scaffoldProject = async (prompt: string): Promise<Record<string, st
 Respond with a JSON object where keys are the full file paths (e.g., "/src/components/Button.jsx") and values are the file content.
 User's prompt: "${prompt}"`;
 
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: fullPrompt }] }],
         config: { responseMimeType: "application/json" }
@@ -381,7 +381,7 @@ Respond with a JSON object matching the specified schema.
 \`\`\`json
 ${packageJsonContent}
 \`\`\``;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }],
         config: {
@@ -417,7 +417,7 @@ User Prompt: "${userPrompt}"
 Based on the user's prompt and the context of a modern web design, generate a single, complete HTML file with embedded CSS in a <style> tag that accurately represents the described design.
 Focus on creating a clean, responsive, and semantic structure.
 Only output the raw HTML code. Do not include any explanations or markdown formatting.`;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
@@ -433,7 +433,7 @@ Code to review:
 ${code}
 \`\`\`
 `;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }],
         config: {
@@ -462,7 +462,7 @@ export const deployProject = async (): Promise<{ url: string; success: boolean; 
     const ai = getAI();
     const prompt = `Simulate a successful deployment of a static web project. Generate a realistic-looking but fake deployment URL on a platform like Vercel or Netlify.
 Respond with a JSON object containing a "url" and a "message".`;
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }],
         config: {
@@ -520,7 +520,7 @@ Your task is to intelligently update the correct file.
 4.  **Respond with JSON:** Provide a JSON object containing the path of the single file you chose to modify (\`filePath\`) and the complete, new content of that file (\`updatedCode\`).
 `;
 
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: prompt }] }],
         config: {
@@ -545,7 +545,7 @@ export const generateShellCommand = async (prompt: string): Promise<string> => {
 Only output the raw, executable command. Do not add any conversational text, explanations, or markdown formatting.
 User's request: "${prompt}"`;
 
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const response = await model.generateContent({
         contents: [{ parts: [{ text: fullPrompt }] }]
     });
