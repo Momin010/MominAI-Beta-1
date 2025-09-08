@@ -6,10 +6,14 @@ import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } f
 /// <reference types="vite/client" />
 
 const getAI = (): OpenAI => {
-  if (!import.meta.env.VITE_API_KEY) {
-    throw new Error("API Key not found. Please ensure the VITE_API_KEY environment variable is set.");
+  if (!import.meta.env.VITE_OPENROUTER_API_KEY) {
+    throw new Error("API Key not found. Please ensure the VITE_OPENROUTER_API_KEY environment variable is set.");
   }
-  return new OpenAI({ apiKey: import.meta.env.VITE_API_KEY, dangerouslyAllowBrowser: true });
+  return new OpenAI({
+    apiKey: import.meta.env.VITE_OPENROUTER_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1',
+    dangerouslyAllowBrowser: true
+  });
 };
 
 
@@ -37,7 +41,7 @@ The JSON object must have this exact structure:
 In this case, respond with a helpful, friendly answer in standard Markdown format. Do NOT use the JSON format for these requests.`;
 
         const response = await ai.chat.completions.create({
-            model: 'gpt-4',
+            model: 'openai/gpt-4o-mini',
             messages: [
                 { role: 'system', content: systemInstruction },
                 { role: 'user', content: prompt }
@@ -66,7 +70,7 @@ Only output the raw code for the file content.
 User's request: "${userPrompt}"`;
 
         const response = await ai.chat.completions.create({
-            model: 'gpt-4',
+            model: 'openai/gpt-4o-mini',
             messages: [{ role: 'user', content: fullPrompt }]
         });
 
@@ -94,7 +98,7 @@ Code before cursor:
 ${codeBeforeCursor}`;
 
         const response = await ai.chat.completions.create({
-            model: 'gpt-4',
+            model: 'openai/gpt-4o-mini',
             messages: [{ role: 'user', content: fullPrompt }],
             temperature: 0.2,
             max_tokens: 100
@@ -145,7 +149,7 @@ Provide your response as a JSON object with the following structure:
 Ensure "fixedCode" contains the complete content for the entire file.`;
 
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
     });
@@ -181,7 +185,7 @@ Do NOT provide explanations, context, or code fences. Your response must be ONLY
 For example, if the original line is "console.log(myVar)" and the fix is to remove it, return an empty string. If the fix is to change it to "console.info(myVar)", return exactly that.`;
 
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content; // Return the raw text which should be just the line
@@ -191,7 +195,7 @@ export const getCodeExplanation = async (code: string): Promise<string> => {
     const ai = getAI();
     const prompt = `Explain the following code snippet concisely. Format the response as Markdown. \n\n\`\`\`\n${code}\n\`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content;
@@ -209,7 +213,7 @@ ${code}
 `;
     try {
         const response = await ai.chat.completions.create({
-            model: 'gpt-4',
+            model: 'openai/gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             response_format: { type: 'json_object' }
         });
@@ -229,7 +233,7 @@ Code:
 ${code}
 \`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.replace(/```mermaid\n|```/g, '').trim();
@@ -245,7 +249,7 @@ Code to test:
 ${code}
 \`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -260,7 +264,7 @@ CSS to optimize:
 ${css}
 \`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -276,7 +280,7 @@ ${fileContents}
 \`\`\`
 `;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -288,7 +292,7 @@ export const generateRegex = async (description: string): Promise<string> => {
 Only output the raw regex pattern. Do not include slashes, flags, or any other text.
 Description: "${description}"`;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -302,7 +306,7 @@ Explain the purpose of the file, its functions/classes, parameters, and return v
 ${code}
 \`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -314,7 +318,7 @@ export const generateTheme = async (description: string): Promise<Record<string,
 Provide a JSON object with keys like "--text-primary", "--ui-panel-bg", "--accent-primary", etc., and their corresponding color values.
 The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-panel-bg-heavy, --ui-border, --ui-hover-bg, --accent-primary.`;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
     });
@@ -329,7 +333,7 @@ Only output the raw, converted code. Do not add any conversational text or markd
 ${code}
 \`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -338,7 +342,7 @@ ${code}
 export const generateCodeFromImage = async (base64Image: string, prompt: string): Promise<string> => {
     const ai = getAI();
     const response = await ai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'openai/gpt-4o',
         messages: [
             {
                 role: 'user',
@@ -359,7 +363,7 @@ Respond with a JSON object where keys are the full file paths (e.g., "/src/compo
 User's prompt: "${prompt}"`;
 
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: fullPrompt }],
         response_format: { type: 'json_object' }
     });
@@ -375,7 +379,7 @@ Respond with a JSON object with dependencies and devDependencies arrays.
 ${packageJsonContent}
 \`\`\``;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
     });
@@ -392,7 +396,7 @@ Based on the user's prompt and the context of a modern web design, generate a si
 Focus on creating a clean, responsive, and semantic structure.
 Only output the raw HTML code. Do not include any explanations or markdown formatting.`;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }]
     });
     return response.choices[0].message.content.trim();
@@ -410,7 +414,7 @@ ${code}
 \`\`\`
 `;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
     });
@@ -423,7 +427,7 @@ export const deployProject = async (): Promise<{ url: string; success: boolean; 
     const prompt = `Simulate a successful deployment of a static web project. Generate a realistic-looking but fake deployment URL on a platform like Vercel or Netlify.
 Respond with a JSON object containing a "url" and a "message".`;
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
     });
@@ -471,7 +475,7 @@ Your task is to intelligently update the correct file.
 `;
 
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
     });
@@ -486,7 +490,7 @@ Only output the raw, executable command. Do not add any conversational text, exp
 User's request: "${prompt}"`;
 
     const response = await ai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: fullPrompt }]
     });
 
