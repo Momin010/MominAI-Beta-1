@@ -101,6 +101,44 @@
       background-attachment: fixed;
       z-index: -1;
       pointer-events: none;
+      opacity: 1 !important;
+  }
+
+  /* Debug indicator - shows background image status */
+  body::after {
+      content: '🖼️ BG Image Loading...';
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(255, 165, 0, 0.8);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      z-index: 9999;
+      font-family: monospace;
+      pointer-events: none;
+  }
+
+  /* Success state */
+  body.image-loaded::after {
+      content: '✅ BG Image Loaded';
+      background: rgba(0, 255, 0, 0.8);
+  }
+
+  /* Error state */
+  body.image-error::after {
+      content: '❌ BG Image Failed';
+      background: rgba(255, 0, 0, 0.8);
+  }
+
+  /* Alternative background approach if CSS fails */
+  body.image-error {
+      background: linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%) !important;
+  }
+
+  body.image-error::before {
+      background: linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%) !important;
   }
 
   /* SCROLLBAR STYLING */

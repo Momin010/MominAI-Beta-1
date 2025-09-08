@@ -72,19 +72,6 @@
             isolation: isolate;
             position: relative;
         }
-        
-        #root::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: url('/lataus.jpeg') center/cover no-repeat;
-            filter: blur(0px);
-            z-index: -1;
-            pointer-events: none;
-        }
 
         .xterm {
             padding: 10px;
@@ -165,6 +152,65 @@
 </head>
 <body>
     <div id="root"></div>
+
+    <!-- Background Image Debug Script -->
+    <script>
+        // Debug background image loading
+        const img = new Image();
+        img.onload = function() {
+            console.log('✅ Background image loaded successfully:', img.src);
+            document.body.classList.add('image-loaded');
+            document.body.classList.remove('image-error');
+        };
+        img.onerror = function() {
+            console.error('❌ Background image failed to load:', img.src);
+            document.body.classList.add('image-error');
+            document.body.classList.remove('image-loaded');
+
+            // Fallback: try to set background via JavaScript
+            console.log('🔄 Attempting JavaScript fallback...');
+            document.body.style.backgroundImage = 'url(/avatar.jpg)';
+            document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundPosition = 'center';
+            document.body.style.backgroundRepeat = 'no-repeat';
+            document.body.style.backgroundAttachment = 'fixed';
+        };
+        img.src = '/avatar.jpg';
+
+        // Check if CSS background is applied
+        setTimeout(() => {
+            const computedStyle = window.getComputedStyle(document.body);
+            const backgroundImage = computedStyle.backgroundImage;
+            console.log('🎨 Body background-image:', backgroundImage);
+
+            if (backgroundImage && backgroundImage !== 'none') {
+                console.log('✅ CSS background image is applied');
+            } else {
+                console.warn('⚠️ CSS background image not applied - trying fallback');
+                // Additional fallback
+                document.body.style.backgroundImage = 'url(/avatar.jpg)';
+                document.body.style.backgroundSize = 'cover';
+                document.body.style.backgroundPosition = 'center';
+                document.body.style.backgroundRepeat = 'no-repeat';
+                document.body.style.backgroundAttachment = 'fixed';
+            }
+        }, 1000);
+
+        // Additional check after page fully loads
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                const computedStyle = window.getComputedStyle(document.body);
+                const backgroundImage = computedStyle.backgroundImage;
+                console.log('🔍 Final background check:', backgroundImage);
+
+                if (!backgroundImage || backgroundImage === 'none') {
+                    console.error('🚨 Background image completely failed - using gradient fallback');
+                    document.body.style.background = 'linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%)';
+                }
+            }, 2000);
+        });
+    </script>
+
     <script type="module" src="/src/index.tsx" defer></script>
 </body>
 </html>
