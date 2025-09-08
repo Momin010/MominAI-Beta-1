@@ -16,14 +16,145 @@ import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } f
 /// <reference types="vite/client" />
 
 const getAI = (): OpenAI => {
-  if (!import.meta.env.VITE_OPENROUTER_API_KEY) {
+  const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+  if (!apiKey) {
     throw new Error("API Key not found. Please ensure the VITE_OPENROUTER_API_KEY environment variable is set.");
   }
   return new OpenAI({
-    apiKey: import.meta.env.VITE_OPENROUTER_API_KEY,
+    apiKey: apiKey,
     baseURL: 'https://openrouter.ai/api/v1',
     dangerouslyAllowBrowser: true
   });
+};
+
+// Fallback project generator when AI is unavailable
+const getFallbackProject = (prompt: string): Record<string, string> => {
+  return {
+    '/src/components/Welcome.jsx': `import React from 'react';
+
+const Welcome = () => {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
+        <div className="w-16 h-16 bg-blue-500 rounded-full mx-auto mb-4 flex items-center justify-center">
+          <span className="text-white text-2xl font-bold">!</span>
+        </div>
+        <h1 className="text-2xl font-bold text-gray-800 mb-4">AI Service Unavailable</h1>
+        <p className="text-gray-600 mb-6">
+          The AI service is temporarily unavailable. This is a basic project template.
+        </p>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm text-yellow-800">
+            Please check your API key settings and try again later for full AI-powered code generation.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Welcome;`,
+    '/src/App.jsx': `import React from 'react';
+import Welcome from './components/Welcome';
+
+function App() {
+  return (
+    <div className="App">
+      <Welcome />
+    </div>
+  );
+}
+
+export default App;`,
+    '/src/index.css': `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}`
+  };
+};
+
+// Fallback code generator when AI is unavailable
+const getFallbackCode = (userPrompt: string, fileName: string): string => {
+  const fileExtension = fileName.split('.').pop()?.toLowerCase();
+
+  switch (fileExtension) {
+    case 'jsx':
+    case 'tsx':
+      return `import React from 'react';
+
+const ${fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "")} = () => {
+  return (
+    <div className="p-4">
+      <h2 className="text-2xl font-bold mb-4">${fileName.replace(/\.[^/.]+$/, "")} Component</h2>
+      <p className="text-gray-600">This component was created as a fallback when the AI service was unavailable.</p>
+      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+        <p className="text-sm text-blue-800">
+          AI service temporarily unavailable. This is a basic template.
+          Please try again later for more advanced code generation.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ${fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "")};
+`;
+
+    case 'js':
+      return `// ${fileName} - Fallback implementation
+// AI service temporarily unavailable
+
+export const ${fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "")} = () => {
+  console.log('${fileName} function called');
+  return 'This is a fallback implementation. AI service is temporarily unavailable.';
+};
+
+export default ${fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "")};
+`;
+
+    case 'css':
+      return `/* ${fileName} - Fallback styles */
+/* AI service temporarily unavailable */
+
+.${fileName.replace(/\.[^/.]+$/, "").toLowerCase()} {
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.${fileName.replace(/\.[^/.]+$/, "").toLowerCase()} h2 {
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+}
+
+.${fileName.replace(/\.[^/.]+$/, "").toLowerCase()} p {
+  margin-bottom: 0.5rem;
+}
+`;
+
+    default:
+      return `// ${fileName} - Fallback content
+// AI service temporarily unavailable
+// This is a basic template file
+
+console.log('${fileName} loaded - AI service was unavailable during generation');
+`;
+  }
 };
 
 
@@ -163,13 +294,34 @@ Deliver excellence on the first attempt! 🚀`;
 
     } catch (error) {
         console.error("Error getting AI stream response:", error);
-        yield `\n\n**AI Service Error:**\n${error instanceof Error ? error.message : 'An unknown error occurred.'}\n\nPlease check your API key in the Settings panel or review the browser console for more details.`;
+
+        // Handle different types of errors
+        let errorMessage = 'An unknown error occurred.';
+        if (error instanceof Error) {
+            if (error.message.includes('500')) {
+                errorMessage = 'AI service is temporarily unavailable (500 error). Please try again in a moment.';
+            } else if (error.message.includes('429')) {
+                errorMessage = 'Too many requests. Please wait a moment before trying again.';
+            } else if (error.message.includes('401')) {
+                errorMessage = 'API key is invalid or expired. Please check your settings.';
+            } else {
+                errorMessage = error.message;
+            }
+        }
+
+        yield `\n\n**AI Service Error:**\n${errorMessage}\n\nPlease check your API key in the Settings panel or review the browser console for more details.`;
     }
 }
 
 
 export const generateCodeForFile = async (userPrompt: string, fileName: string): Promise<string> => {
     try {
+        // Check if API key is available
+        const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+        if (!apiKey) {
+            return getFallbackCode(userPrompt, fileName);
+        }
+
         const ai = getAI();
 
         // Enhanced prompt with industry research and competitor analysis
@@ -190,11 +342,14 @@ USER REQUEST: "${userPrompt}"
 ## 🎨 MODERN REQUIREMENTS:
 - **Responsive Design**: Mobile-first approach with breakpoints
 - **Accessibility**: WCAG compliant with proper ARIA labels
-- **Performance**: Optimized images, lazy loading, minimal bundle size
-- **SEO**: Proper meta tags, semantic HTML, fast loading
+- **Performance**: Optimized code, minimal bundle size, fast loading
+- **SEO**: Proper meta tags, semantic HTML structure
 - **Modern CSS**: Use CSS Grid, Flexbox, modern selectors
 - **JavaScript**: ES6+, async/await, error handling
 - **React**: If applicable, use hooks, context, proper component structure
+- **NO EXTERNAL IMAGES**: Do not reference any external image files or placeholders
+- **CSS-ONLY DESIGN**: Use gradients, patterns, or simple backgrounds
+- **SELF-CONTAINED**: All styling should be inline or CSS-based, no external assets
 
 ## 📋 OUTPUT FORMAT:
 Generate ONLY the raw, complete code for the file. No explanations, no markdown formatting, no code fences. Just the pure, production-ready code that can be directly used.
@@ -466,6 +621,11 @@ The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-pan
         response_format: { type: 'json_object' }
     });
     return JSON.parse(response.choices[0].message.content.trim());
+    } catch (error) {
+        console.error("Error scaffolding project with AI:", error);
+        // Return fallback project structure
+        return getFallbackProject(prompt);
+    }
 };
 
 export const migrateCode = async (code: string, from: string, to: string): Promise<string> => {
@@ -500,7 +660,13 @@ export const generateCodeFromImage = async (base64Image: string, prompt: string)
 };
 
 export const scaffoldProject = async (prompt: string): Promise<Record<string, string>> => {
-    const ai = getAI();
+    try {
+        const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+        if (!apiKey) {
+            return getFallbackProject(prompt);
+        }
+
+        const ai = getAI();
 
     const fullPrompt = `🚀 COMPLETE PROJECT SCAFFOLDING WITH INDUSTRY RESEARCH
 
@@ -911,6 +1077,9 @@ IMPORTANT DIRECTORY RULES:
 - **Layout**: Modern grid system with proper spacing
 - **Animations**: Smooth transitions and micro-interactions
 - **Mobile**: Fully responsive with touch-friendly elements
+- **NO PLACEHOLDER IMAGES**: Do not include any placeholder image paths like "path-to-image.jpg"
+- **CSS-BASED DESIGN**: Use CSS gradients, patterns, or simple backgrounds instead of external images
+- **SELF-CONTAINED**: All assets should be inline or generated, no external dependencies
 
 Create the complete, industry-researched, production-ready website now:`;
 
