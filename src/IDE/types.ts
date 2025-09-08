@@ -128,7 +128,8 @@ export interface SearchResult {
 export interface FileAction {
     action: 'create' | 'update';
     path: string;
-    content: string;
+    content?: string;
+    type?: 'file' | 'directory';
 }
 
 export interface Message {

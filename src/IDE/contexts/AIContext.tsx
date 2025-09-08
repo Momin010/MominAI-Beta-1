@@ -195,7 +195,11 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
         // Apply each action
         actions.forEach(action => {
             if (action.action === 'create') {
-                createNode(action.path, 'file', action.content || '');
+                if (action.type === 'directory') {
+                    createNode(action.path, 'directory');
+                } else if (action.type === 'file') {
+                    createNode(action.path, 'file', action.content || '');
+                }
             } else if (action.action === 'update') {
                 updateNode(action.path, action.content || '');
             }

@@ -70,12 +70,20 @@ Output ONLY a raw JSON object with this exact structure:
   "explanation": "Brief explanation of what was created/improved",
   "actions": [
     {
-      "action": "create" | "update",
-      "path": "/path/to/file",
-      "content": "COMPLETE file content"
+      "action": "create",
+      "type": "directory" | "file",
+      "path": "/path/to/directory-or-file",
+      "content": "COMPLETE file content (only for files)"
     }
   ]
 }
+
+IMPORTANT: When creating files in subdirectories that don't exist:
+1. First create the directory structure with "type": "directory"
+2. Then create the files with "type": "file"
+3. Always use forward slashes (/) in paths
+4. Start paths with / (root directory)
+5. Example: To create /src/components/Button.jsx, first create /src/components/ directory
 
 **Scenario 2: Questions/Explanations**
 Respond in friendly Markdown format with detailed, helpful answers.
@@ -536,10 +544,37 @@ Generate a production-ready project with:
 - **Landing Page**: Hero sections, CTAs, conversion optimization
 
 ## 📋 OUTPUT FORMAT:
-Respond with a JSON object where:
-- Keys are file paths (e.g., "/src/components/Button.tsx")
-- Values are complete file contents
-- Include ALL necessary files for a production-ready project
+Generate a JSON object with this exact structure:
+{
+  "explanation": "Complete project scaffolding with directory structure",
+  "actions": [
+    {
+      "action": "create",
+      "type": "directory",
+      "path": "/src/components"
+    },
+    {
+      "action": "create",
+      "type": "directory",
+      "path": "/src/pages"
+    },
+    {
+      "action": "create",
+      "type": "file",
+      "path": "/src/components/Navbar.jsx",
+      "content": "COMPLETE file content"
+    }
+  ]
+}
+
+CRITICAL DIRECTORY REQUIREMENTS:
+- Create ALL necessary directories first
+- Use hierarchical order: parent directories before child directories
+- Always use "type": "directory" for folders
+- Always use "type": "file" for files
+- Start all paths with /
+- Use forward slashes only
+- Include complete, working code in file contents
 
 ## 🎯 QUALITY REQUIREMENTS:
 - **Modern Code**: ES6+, TypeScript, proper imports/exports
@@ -845,15 +880,30 @@ Based on research, include:
 - **SEO**: Proper meta tags and structure
 
 ## 📋 OUTPUT FORMAT:
-Generate a JSON object with complete file structure:
+Generate a JSON object with this exact structure:
 {
-  "/index.html": "Complete HTML with all sections",
-  "/css/styles.css": "Modern CSS with glass effects",
-  "/js/main.js": "Interactive JavaScript functionality",
-  "/components/navbar.html": "Reusable navbar component",
-  "/components/footer.html": "Footer component",
-  ...additional files as needed
+  "explanation": "Brief description of what was created",
+  "actions": [
+    {
+      "action": "create",
+      "type": "directory",
+      "path": "/src/components"
+    },
+    {
+      "action": "create",
+      "type": "file",
+      "path": "/src/components/Navbar.jsx",
+      "content": "COMPLETE file content here"
+    }
+  ]
 }
+
+IMPORTANT DIRECTORY RULES:
+- Always create parent directories BEFORE creating files
+- Use "type": "directory" for folders, "type": "file" for files
+- Start all paths with /
+- Use forward slashes only
+- Create directories in hierarchical order (parent before child)
 
 ## 🎨 DESIGN REQUIREMENTS:
 - **Color Scheme**: Based on industry research and modern trends
