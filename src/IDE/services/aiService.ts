@@ -16,7 +16,7 @@ export async function* streamAIResponse(prompt: string): AsyncGenerator<string> 
         const ai = getAI();
         const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
         const responseStream = await model.generateContentStream({
-            contents: prompt,
+            contents: [{ parts: [{ text: prompt }] }],
             config: {
                 systemInstruction: `You are an expert pair programming assistant in a web-based IDE. Your response format depends entirely on the user's request.
 
@@ -62,7 +62,7 @@ User's request: "${userPrompt}"`;
 
         const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-            contents: fullPrompt
+            contents: [{ parts: [{ text: fullPrompt }] }]
         });
         
         return response.text.trim();
@@ -90,7 +90,7 @@ ${codeBeforeCursor}`;
 
         const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-            contents: fullPrompt,
+            contents: [{ parts: [{ text: fullPrompt }] }],
             config: { temperature: 0.2, maxOutputTokens: 100, thinkingConfig: { thinkingBudget: 0 } }
         });
 
@@ -134,7 +134,7 @@ Ensure "fixedCode" contains the complete content for the entire file.`;
     
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt,
+        contents: [{ parts: [{ text: prompt }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -182,7 +182,7 @@ For example, if the original line is "console.log(myVar)" and the fix is to remo
 
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt
+        contents: [{ parts: [{ text: prompt }] }]
     });
     return response.text; // Return the raw text which should be just the line
 };
@@ -191,7 +191,7 @@ export const getCodeExplanation = async (code: string): Promise<string> => {
     const ai = getAI();
     const prompt = `Explain the following code snippet concisely. Format the response as Markdown. \n\n\`\`\`\n${code}\n\`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text;
 };
 
@@ -208,7 +208,7 @@ ${code}
     try {
         const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-            contents: prompt,
+            contents: [{ parts: [{ text: prompt }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -243,7 +243,7 @@ Code:
 ${code}
 \`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.replace(/```mermaid\n|```/g, '').trim();
 };
 
@@ -257,7 +257,7 @@ Code to test:
 ${code}
 \`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -270,7 +270,7 @@ CSS to optimize:
 ${css}
 \`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -284,7 +284,7 @@ ${fileContents}
 \`\`\`
 `;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -294,7 +294,7 @@ export const generateRegex = async (description: string): Promise<string> => {
 Only output the raw regex pattern. Do not include slashes, flags, or any other text.
 Description: "${description}"`;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -306,7 +306,7 @@ Explain the purpose of the file, its functions/classes, parameters, and return v
 ${code}
 \`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -317,7 +317,7 @@ Provide a JSON object with keys like "--text-primary", "--ui-panel-bg", "--accen
 The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-panel-bg-heavy, --ui-border, --ui-hover-bg, --accent-primary.`;
      const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt,
+        contents: [{ parts: [{ text: prompt }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -343,7 +343,7 @@ Only output the raw, converted code. Do not add any conversational text or markd
 ${code}
 \`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -354,7 +354,7 @@ export const generateCodeFromImage = async (base64Image: string, prompt: string)
     
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: { parts: [imagePart, textPart] }
+        contents: [{ parts: [imagePart, textPart] }]
     });
     return response.text.trim();
 };
@@ -367,7 +367,7 @@ User's prompt: "${prompt}"`;
 
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: fullPrompt,
+        contents: [{ parts: [{ text: fullPrompt }] }],
         config: { responseMimeType: "application/json" }
     });
     return JSON.parse(response.text.trim());
@@ -383,7 +383,7 @@ ${packageJsonContent}
 \`\`\``;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt,
+        contents: [{ parts: [{ text: prompt }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -418,7 +418,7 @@ Based on the user's prompt and the context of a modern web design, generate a si
 Focus on creating a clean, responsive, and semantic structure.
 Only output the raw HTML code. Do not include any explanations or markdown formatting.`;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const response = await model.generateContent({ contents: prompt });
+        const response = await model.generateContent({ contents: [{ parts: [{ text: prompt }] }] });
     return response.text.trim();
 };
 
@@ -435,7 +435,7 @@ ${code}
 `;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt,
+        contents: [{ parts: [{ text: prompt }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -464,7 +464,7 @@ export const deployProject = async (): Promise<{ url: string; success: boolean; 
 Respond with a JSON object containing a "url" and a "message".`;
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt,
+        contents: [{ parts: [{ text: prompt }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -522,7 +522,7 @@ Your task is to intelligently update the correct file.
 
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: prompt,
+        contents: [{ parts: [{ text: prompt }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -547,7 +547,7 @@ User's request: "${prompt}"`;
 
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const response = await model.generateContent({
-        contents: fullPrompt
+        contents: [{ parts: [{ text: fullPrompt }] }]
     });
 
     return response.text.trim();
