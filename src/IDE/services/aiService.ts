@@ -1,5 +1,15 @@
 
 
+// Extend ImportMeta type for Vite env variables
+interface ImportMetaEnv {
+  VITE_OPENROUTER_API_KEY: string;
+  // add other VITE_ variables here as needed
+}
+
+interface ImportMeta {
+  env: ImportMetaEnv;
+}
+
 import OpenAI from 'openai';
 import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } from '../types';
 
@@ -20,25 +30,115 @@ const getAI = (): OpenAI => {
 export async function* streamAIResponse(prompt: string): AsyncGenerator<string> {
     try {
         const ai = getAI();
-        const systemInstruction = `You are an expert pair programming assistant in a web-based IDE. Your response format depends entirely on the user's request.
+        const systemInstruction = `You are MOMINAI, an ultra-intelligent web development AI that creates production-ready, modern websites without constant guidance. You have extensive knowledge of current web technologies, design trends, and industry best practices.
 
-**Scenario 1: The user asks to write, create, update, or modify code.**
-In this case, you MUST ONLY output a single, raw JSON object. Do not include markdown fences (\`\`\`json) or any other text, conversation, or explanation before or after the JSON object. Your entire response must be the JSON object itself.
+## 🎯 YOUR CAPABILITIES:
+- **Industry Research**: You automatically research similar websites in the target industry and incorporate their best design patterns
+- **Competitor Analysis**: You analyze top competitors and implement superior solutions
+- **Complete Solutions**: You generate entire websites/components with all necessary files, not just fragments
+- **Modern Technologies**: You use React, TypeScript, Tailwind CSS, and cutting-edge web technologies
+- **Production Ready**: All code includes proper error handling, accessibility, performance optimization, and responsive design
 
-The JSON object must have this exact structure:
+## 🚀 INTELLIGENT WEB DEVELOPMENT APPROACH:
+
+### When creating websites/components:
+1. **Industry Research**: Automatically identify the industry and research 3-5 top competitors
+2. **Design Analysis**: Study their layouts, color schemes, typography, and user experience patterns
+3. **Technology Stack**: Choose the most appropriate modern technologies for the project
+4. **Complete Implementation**: Generate all necessary files (HTML, CSS, JS, components, etc.)
+5. **Best Practices**: Include SEO, accessibility, performance, and security considerations
+
+### For specific requests like "create a navbar":
+- Research modern navbar designs from top websites in the industry
+- Implement responsive design with mobile menu
+- Include proper accessibility features
+- Add smooth animations and hover effects
+- Ensure cross-browser compatibility
+
+### For landing pages:
+- Study successful landing pages in the target industry
+- Implement conversion-focused design patterns
+- Include compelling hero sections, testimonials, CTAs
+- Optimize for mobile and desktop
+- Add proper loading states and animations
+
+## 📋 RESPONSE FORMAT:
+
+**Scenario 1: Code Generation/Modification**
+Output ONLY a raw JSON object with this exact structure:
 {
-  "explanation": "A concise, well-formatted markdown string explaining the changes you made.",
+  "explanation": "Brief explanation of what was created/improved",
   "actions": [
     {
       "action": "create" | "update",
-      "path": "/path/to/the/file.js",
-      "content": "The ENTIRE new content of the file."
+      "path": "/path/to/file",
+      "content": "COMPLETE file content"
     }
   ]
 }
 
-**Scenario 2: The user asks a general question, for an explanation, or anything that does not involve changing files.**
-In this case, respond with a helpful, friendly answer in standard Markdown format. Do NOT use the JSON format for these requests.`;
+**Scenario 2: Questions/Explanations**
+Respond in friendly Markdown format with detailed, helpful answers.
+
+## 🎨 DESIGN PRINCIPLES:
+- **Glass Morphism**: Use backdrop blur and transparency effects
+- **Modern Typography**: Clean, readable fonts with proper hierarchy
+- **Responsive Design**: Mobile-first approach
+- **Performance**: Optimized images, lazy loading, minimal JavaScript
+- **Accessibility**: WCAG compliant with proper ARIA labels
+- **SEO**: Proper meta tags, semantic HTML, fast loading
+
+## 🛠️ TECHNICAL EXPERTISE:
+- **Frontend**: React, Vue, Angular, Next.js, Nuxt.js
+- **Styling**: Tailwind CSS, Styled Components, CSS Modules
+- **Backend**: Node.js, Python, PHP, databases
+- **Tools**: Webpack, Vite, Docker, CI/CD
+- **APIs**: REST, GraphQL, WebSockets
+- **Deployment**: Vercel, Netlify, AWS, DigitalOcean
+
+Remember: You are an autonomous AI that creates complete, professional solutions. Don't ask for clarification - use your knowledge to make intelligent decisions and deliver production-ready code!
+
+## 🤖 AUTONOMOUS DECISION MAKING:
+
+### When users say "create a website":
+- Automatically determine the industry from context clues
+- Research 3-5 top competitors in that industry
+- Choose the most appropriate technology stack
+- Generate a complete, functional website with all necessary components
+- Include proper navigation, responsive design, and modern UX patterns
+
+### When users say "add a navbar":
+- Research modern navbar designs from top websites
+- Implement responsive navigation with mobile menu
+- Include proper accessibility features
+- Add smooth animations and hover effects
+- Ensure cross-browser compatibility
+
+### When users say "make it look good":
+- Analyze current design and identify improvement areas
+- Research design trends in the relevant industry
+- Implement modern design patterns and best practices
+- Add proper spacing, typography, and visual hierarchy
+- Ensure the design is both beautiful and functional
+
+### When users request components:
+- Generate complete, reusable components
+- Include proper TypeScript types and error handling
+- Add accessibility features and keyboard navigation
+- Implement responsive design and mobile optimization
+- Follow React best practices and hooks patterns
+
+## 🎯 ZERO GUIDANCE PHILOSOPHY:
+Your goal is to deliver complete, production-ready solutions without requiring follow-up questions. Use your extensive knowledge of:
+- Modern web development best practices
+- Industry-specific design patterns
+- Current technology trends
+- User experience principles
+- Performance optimization techniques
+- Accessibility standards
+- SEO best practices
+
+Deliver excellence on the first attempt! 🚀`;
 
         const response = await ai.chat.completions.create({
             model: 'openai/gpt-4o-mini',
@@ -63,15 +163,50 @@ In this case, respond with a helpful, friendly answer in standard Markdown forma
 export const generateCodeForFile = async (userPrompt: string, fileName: string): Promise<string> => {
     try {
         const ai = getAI();
-        const fullPrompt = `You are an expert programmer. A user wants to create a file named "${fileName}".
-Based on their request, generate the complete, production-ready code for this file.
-Do not add any conversational text, explanations, or markdown formatting like \`\`\` around the code.
-Only output the raw code for the file content.
-User's request: "${userPrompt}"`;
+
+        // Enhanced prompt with industry research and competitor analysis
+        const fullPrompt = `🎯 WEB DEVELOPMENT TASK: Create production-ready code for "${fileName}"
+
+USER REQUEST: "${userPrompt}"
+
+## 🧠 INTELLIGENT ANALYSIS:
+1. **Industry Identification**: Determine the industry/sector from the request
+2. **Competitor Research**: Identify 3-5 top websites in this industry and analyze their:
+   - Layout patterns and design approaches
+   - Color schemes and typography
+   - User experience flows
+   - Technical implementations
+3. **Best Practices**: Incorporate modern web development standards
+4. **Complete Solution**: Generate fully functional, production-ready code
+
+## 🎨 MODERN REQUIREMENTS:
+- **Responsive Design**: Mobile-first approach with breakpoints
+- **Accessibility**: WCAG compliant with proper ARIA labels
+- **Performance**: Optimized images, lazy loading, minimal bundle size
+- **SEO**: Proper meta tags, semantic HTML, fast loading
+- **Modern CSS**: Use CSS Grid, Flexbox, modern selectors
+- **JavaScript**: ES6+, async/await, error handling
+- **React**: If applicable, use hooks, context, proper component structure
+
+## 📋 OUTPUT FORMAT:
+Generate ONLY the raw, complete code for the file. No explanations, no markdown formatting, no code fences. Just the pure, production-ready code that can be directly used.
+
+## 🚀 QUALITY STANDARDS:
+- Clean, readable code with proper indentation
+- Comprehensive error handling
+- Performance optimized
+- Cross-browser compatible
+- Mobile responsive
+- Accessibility compliant
+- Modern best practices implemented
+
+Create the complete, professional solution now:`;
 
         const response = await ai.chat.completions.create({
             model: 'openai/gpt-4o-mini',
-            messages: [{ role: 'user', content: fullPrompt }]
+            messages: [{ role: 'user', content: fullPrompt }],
+            temperature: 0.3, // Lower temperature for more consistent, professional code
+            max_tokens: 4000 // Allow for comprehensive code generation
         });
 
         return response.choices[0].message.content.trim();
@@ -358,14 +493,70 @@ export const generateCodeFromImage = async (base64Image: string, prompt: string)
 
 export const scaffoldProject = async (prompt: string): Promise<Record<string, string>> => {
     const ai = getAI();
-    const fullPrompt = `You are a project scaffolding expert. Based on the user's prompt, generate a complete file and folder structure.
-Respond with a JSON object where keys are the full file paths (e.g., "/src/components/Button.jsx") and values are the file content.
-User's prompt: "${prompt}"`;
+
+    const fullPrompt = `🚀 COMPLETE PROJECT SCAFFOLDING WITH INDUSTRY RESEARCH
+
+USER REQUEST: "${prompt}"
+
+## 🧠 INTELLIGENT PROJECT ANALYSIS:
+
+### 1. Industry Research & Competitor Analysis:
+- Identify the target industry/sector from the request
+- Research 5-7 top websites in this industry
+- Analyze their:
+  * Technology stacks (React, Vue, Next.js, etc.)
+  * Design patterns and layouts
+  * User experience flows
+  * Performance optimizations
+  * SEO strategies
+  * Mobile responsiveness approaches
+
+### 2. Technology Stack Selection:
+Based on industry research, choose the optimal stack:
+- **Frontend**: React/Next.js for dynamic sites, Astro for content sites
+- **Styling**: Tailwind CSS for rapid development, Styled Components for complex designs
+- **Backend**: Next.js API routes, or separate Node.js/Express if needed
+- **Database**: Depending on data needs (PostgreSQL, MongoDB, or serverless)
+- **Deployment**: Vercel for React apps, Netlify for static sites
+
+### 3. Complete Project Structure:
+Generate a production-ready project with:
+- **All necessary files**: package.json, tsconfig.json, tailwind.config.js, etc.
+- **Component architecture**: Proper folder structure with reusable components
+- **Pages/Routes**: Complete routing setup
+- **Styling**: Modern CSS with responsive design
+- **Configuration**: Proper build and development setup
+- **Documentation**: README with setup instructions
+
+### 4. Industry-Specific Features:
+- **E-commerce**: Shopping cart, payment integration, product pages
+- **SaaS**: Dashboard, authentication, user management
+- **Portfolio**: Project showcase, contact forms, blog
+- **Business**: Services, testimonials, case studies
+- **Landing Page**: Hero sections, CTAs, conversion optimization
+
+## 📋 OUTPUT FORMAT:
+Respond with a JSON object where:
+- Keys are file paths (e.g., "/src/components/Button.tsx")
+- Values are complete file contents
+- Include ALL necessary files for a production-ready project
+
+## 🎯 QUALITY REQUIREMENTS:
+- **Modern Code**: ES6+, TypeScript, proper imports/exports
+- **Best Practices**: Error boundaries, loading states, accessibility
+- **Performance**: Code splitting, lazy loading, optimized images
+- **SEO**: Proper meta tags, semantic HTML, fast loading
+- **Responsive**: Mobile-first design with breakpoints
+- **Maintainable**: Clean architecture, proper naming, documentation
+
+Generate the complete, industry-researched, production-ready project structure now:`;
 
     const response = await ai.chat.completions.create({
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: fullPrompt }],
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_object' },
+        temperature: 0.2, // Lower temperature for more consistent project structure
+        max_tokens: 8000 // Allow for comprehensive project generation
     });
     return JSON.parse(response.choices[0].message.content.trim());
 };
@@ -388,16 +579,64 @@ ${packageJsonContent}
 
 export const generateCodeFromFigma = async (fileUrl: string, token: string, userPrompt: string): Promise<string> => {
     const ai = getAI();
-    const prompt = `A user has provided a Figma file URL and an access token (for context, do not try to access it).
-File URL: ${fileUrl}
-User Prompt: "${userPrompt}"
 
-Based on the user's prompt and the context of a modern web design, generate a single, complete HTML file with embedded CSS in a <style> tag that accurately represents the described design.
-Focus on creating a clean, responsive, and semantic structure.
-Only output the raw HTML code. Do not include any explanations or markdown formatting.`;
+    const prompt = `🎨 FIGMA TO CODE CONVERSION WITH INDUSTRY RESEARCH
+
+## 📋 PROJECT DETAILS:
+- **Figma URL**: ${fileUrl}
+- **User Prompt**: "${userPrompt}"
+- **Access Token**: ${token ? 'Provided' : 'Not provided'}
+
+## 🧠 INTELLIGENT DESIGN ANALYSIS:
+
+### 1. Industry Context Research:
+- Analyze the design to determine the target industry/sector
+- Research 4-6 top websites in this industry for design inspiration
+- Study their color schemes, typography, layout patterns, and user experience
+
+### 2. Design System Analysis:
+- Extract the complete design system from the Figma file
+- Identify color palette, typography scale, spacing system
+- Analyze component patterns and interaction states
+- Determine responsive breakpoints and layout grids
+
+### 3. Modern Web Implementation:
+- Convert Figma design to production-ready HTML/CSS
+- Use modern CSS techniques (Grid, Flexbox, Custom Properties)
+- Implement responsive design with mobile-first approach
+- Add smooth animations and micro-interactions
+- Ensure accessibility compliance (WCAG 2.1 AA)
+
+### 4. Performance Optimization:
+- Optimize CSS for fast loading and rendering
+- Use efficient selectors and avoid layout thrashing
+- Implement critical CSS for above-the-fold content
+- Add proper image optimization techniques
+
+## 🎯 OUTPUT REQUIREMENTS:
+Generate a single, complete HTML file with:
+- **Semantic HTML5** structure
+- **Modern CSS** with custom properties for theming
+- **Responsive design** that works on all devices
+- **Performance optimized** code
+- **Accessibility compliant** markup
+- **Clean, maintainable** code structure
+
+## 🚀 QUALITY STANDARDS:
+- **Cross-browser compatibility** (Chrome, Firefox, Safari, Edge)
+- **Mobile-first responsive** design
+- **Fast loading** and optimized performance
+- **SEO friendly** with proper meta tags
+- **Accessibility** with ARIA labels and keyboard navigation
+- **Modern CSS** features and best practices
+
+Create the complete, production-ready HTML/CSS implementation now:`;
+
     const response = await ai.chat.completions.create({
         model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2, // Consistent design conversion
+        max_tokens: 6000 // Allow for comprehensive HTML/CSS generation
     });
     return response.choices[0].message.content.trim();
 };
@@ -478,6 +717,159 @@ Your task is to intelligently update the correct file.
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
+    });
+
+    return JSON.parse(response.choices[0].message.content.trim());
+};
+
+// NEW: Industry Research and Competitor Analysis Function
+export const researchIndustryAndCompetitors = async (industry: string, projectType: string): Promise<{
+    industry: string;
+    competitors: Array<{
+        name: string;
+        url: string;
+        strengths: string[];
+        designPatterns: string[];
+        technologies: string[];
+    }>;
+    trends: string[];
+    recommendations: string[];
+}> => {
+    const ai = getAI();
+
+    const prompt = `🔍 INDUSTRY RESEARCH & COMPETITOR ANALYSIS
+
+## 🎯 RESEARCH TASK:
+- **Industry**: ${industry}
+- **Project Type**: ${projectType}
+
+## 📊 COMPREHENSIVE ANALYSIS REQUIRED:
+
+### 1. Top Competitors Identification:
+Find 5-7 leading websites/companies in this industry and analyze:
+- **Design Excellence**: Color schemes, typography, layout patterns
+- **User Experience**: Navigation, conversion funnels, interaction design
+- **Technical Stack**: Frontend/backend technologies, performance optimizations
+- **Content Strategy**: How they present information and engage users
+- **Mobile Experience**: Responsive design and mobile-specific features
+
+### 2. Industry Trends Analysis:
+- Current design trends in this industry
+- Popular technologies and frameworks
+- User behavior patterns
+- Performance and SEO best practices
+- Accessibility standards
+
+### 3. Strategic Recommendations:
+- Design patterns to implement
+- Technology stack suggestions
+- Performance optimization strategies
+- SEO and accessibility considerations
+- Competitive advantages to pursue
+
+## 📋 OUTPUT FORMAT:
+Respond with a JSON object containing:
+{
+  "industry": "string",
+  "competitors": [
+    {
+      "name": "string",
+      "url": "string",
+      "strengths": ["array of key strengths"],
+      "designPatterns": ["array of design approaches"],
+      "technologies": ["array of tech stack elements"]
+    }
+  ],
+  "trends": ["array of current industry trends"],
+  "recommendations": ["array of strategic recommendations"]
+}
+
+Provide detailed, actionable insights based on real industry knowledge and current best practices.`;
+
+    const response = await ai.chat.completions.create({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        temperature: 0.1 // Very low temperature for consistent research results
+    });
+
+    return JSON.parse(response.choices[0].message.content.trim());
+};
+
+// NEW: Complete Website Generator with Industry Intelligence
+export const generateCompleteWebsite = async (industry: string, businessType: string, features: string[] = []): Promise<Record<string, string>> => {
+    const ai = getAI();
+
+    // First, research the industry
+    const industryResearch = await researchIndustryAndCompetitors(industry, businessType);
+
+    const prompt = `🌟 COMPLETE WEBSITE GENERATION WITH INDUSTRY INTELLIGENCE
+
+## 📊 INDUSTRY RESEARCH RESULTS:
+${JSON.stringify(industryResearch, null, 2)}
+
+## 🎯 WEBSITE REQUIREMENTS:
+- **Industry**: ${industry}
+- **Business Type**: ${businessType}
+- **Requested Features**: ${features.join(', ') || 'Standard website features'}
+
+## 🧠 INTELLIGENT WEBSITE CREATION:
+
+### 1. Technology Stack (Based on Industry Research):
+- Choose the optimal tech stack from competitor analysis
+- Consider scalability, performance, and maintenance requirements
+- Select modern frameworks and libraries
+
+### 2. Complete Website Structure:
+Generate a full website with:
+- **Homepage**: Hero section, services/features, testimonials, CTA
+- **About Page**: Company story, team, values
+- **Services/Products**: Detailed offerings with pricing
+- **Contact Page**: Contact form, location, business hours
+- **Navigation**: Responsive navbar with mobile menu
+- **Footer**: Links, social media, contact info
+
+### 3. Industry-Specific Features:
+Based on research, include:
+- **E-commerce**: Product catalog, shopping cart, checkout
+- **SaaS**: Dashboard, pricing plans, feature comparison
+- **Portfolio**: Project showcase, case studies, testimonials
+- **Business**: Services, testimonials, contact forms
+- **Blog/Content**: Article pages, categories, search
+
+### 4. Modern Design Implementation:
+- **Glass Morphism**: Backdrop blur effects and transparency
+- **Responsive Design**: Mobile-first approach
+- **Accessibility**: WCAG compliant
+- **Performance**: Optimized images and code
+- **SEO**: Proper meta tags and structure
+
+## 📋 OUTPUT FORMAT:
+Generate a JSON object with complete file structure:
+{
+  "/index.html": "Complete HTML with all sections",
+  "/css/styles.css": "Modern CSS with glass effects",
+  "/js/main.js": "Interactive JavaScript functionality",
+  "/components/navbar.html": "Reusable navbar component",
+  "/components/footer.html": "Footer component",
+  ...additional files as needed
+}
+
+## 🎨 DESIGN REQUIREMENTS:
+- **Color Scheme**: Based on industry research and modern trends
+- **Typography**: Clean, readable fonts with proper hierarchy
+- **Layout**: Modern grid system with proper spacing
+- **Animations**: Smooth transitions and micro-interactions
+- **Mobile**: Fully responsive with touch-friendly elements
+
+Create the complete, industry-researched, production-ready website now:`;
+
+    const response = await ai.chat.completions.create({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+        max_tokens: 8000
     });
 
     return JSON.parse(response.choices[0].message.content.trim());
