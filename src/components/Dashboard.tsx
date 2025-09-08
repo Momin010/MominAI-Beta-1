@@ -48,12 +48,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     };
     
     return (
-        <div className="frost flex h-screen w-screen bg-[var(--background)] text-[var(--foreground)] font-sans">
+        <div className="flex h-screen w-screen bg-[#F5F5DC] text-[var(--foreground)] font-sans">
             <Sidebar activeView={activeView} setActiveView={setActiveView} />
             <div className="flex-1 flex flex-col overflow-hidden">
                 <Header onLogout={onLogout} />
-                <main className="flex-1 overflow-y-auto p-8 bg-[rgba(11,8,24,0.8)]" style={{ animation: 'fadeIn 0.5s ease-out' }}>
-                   {renderView()}
+                <main className="flex-1 overflow-y-auto p-8" style={{ animation: 'fadeIn 0.5s ease-out' }}>
+                    {renderView()}
                 </main>
             </div>
         </div>
@@ -68,7 +68,7 @@ const Sidebar: React.FC<{activeView: string, setActiveView: (view: string) => vo
     ];
 
     return (
-        <aside className="w-64 bg-[rgba(18,15,36,0.5)] flex flex-col p-4 shadow-2xl">
+        <aside className="w-64 glass-sidebar flex flex-col p-4 shadow-2xl m-4">
             <div className="px-2 mb-10">
                 <MominAILogo />
             </div>
@@ -77,7 +77,7 @@ const Sidebar: React.FC<{activeView: string, setActiveView: (view: string) => vo
                     <button 
                         key={item.id}
                         onClick={() => setActiveView(item.id)}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border border-transparent bg-transparent ${activeView === item.id ? 'bg-[var(--accent)] text-white shadow-lg' : 'text-[var(--gray)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--foreground)]'}`}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border border-transparent glass-button ${activeView === item.id ? 'bg-[var(--accent)] text-white shadow-lg' : 'text-gray-700 hover:bg-white/20 hover:text-black'}`}
                     >
                         <item.icon className="w-5 h-5" />
                         <span>{item.label}</span>
@@ -108,11 +108,11 @@ const UserProfileDropdown: React.FC<{onLogout: () => void}> = ({ onLogout }) => 
                 <img src="/avatar.jpg" alt="User Avatar" className="w-8 h-8 rounded-full"/>
             </button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-[var(--background-secondary)] rounded-lg shadow-2xl py-2" style={{animation: 'scaleIn 0.1s ease-out'}}>
-                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-[var(--gray)] hover:bg-white/5 hover:text-white transition-colors"><AppIcons.User className="w-4 h-4" /> Account</a>
-                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-[var(--gray)] hover:bg-white/5 hover:text-white transition-colors"><AppIcons.Settings className="w-4 h-4" /> Settings</a>
-                    <div className="my-2 h-px bg-[var(--border-color)]"></div>
-                    <button onClick={onLogout} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors bg-transparent border-none">
+                <div className="absolute right-0 mt-2 w-48 glass-card shadow-2xl py-2" style={{animation: 'scaleIn 0.1s ease-out'}}>
+                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-white/20 hover:text-black transition-colors rounded-lg mx-2"><AppIcons.User className="w-4 h-4" /> Account</a>
+                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-white/20 hover:text-black transition-colors rounded-lg mx-2"><AppIcons.Settings className="w-4 h-4" /> Settings</a>
+                    <div className="my-2 h-px bg-white/30 mx-2"></div>
+                    <button onClick={onLogout} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-500/20 hover:text-red-700 transition-colors bg-transparent border-none rounded-lg mx-2">
                         <AppIcons.LogOut className="w-4 h-4" />
                         Logout
                     </button>
@@ -123,8 +123,8 @@ const UserProfileDropdown: React.FC<{onLogout: () => void}> = ({ onLogout }) => 
 };
 
 const Header: React.FC<{onLogout: () => void}> = ({ onLogout }) => (
-    <header className="flex-shrink-0 h-20 flex items-center justify-between px-8 bg-transparent">
-        <h1 className="text-xl font-semibold">Welcome Back, Momin</h1>
+    <header className="flex-shrink-0 h-20 flex items-center justify-between px-8 glass-panel m-4 rounded-xl">
+        <h1 className="text-xl font-semibold text-gray-800">Welcome Back, Momin</h1>
         <div className="flex items-center gap-4">
             <UserProfileDropdown onLogout={onLogout} />
         </div>
@@ -135,13 +135,13 @@ const ProjectsView: React.FC<{onOpenIDE: () => void}> = ({ onOpenIDE }) => (
     <div>
         <div className="flex justify-between items-center mb-8">
             <h2 className="text-3xl font-bold">Projects</h2>
-            <button className="flex items-center gap-2 bg-[var(--accent)] text-white px-4 py-2 rounded-lg font-semibold text-sm hover:brightness-110 transition-all transform hover:scale-105 shadow-lg shadow-[var(--accent-glow)] border-none">
+            <button className="flex items-center gap-2 glass-button bg-primary text-white px-4 py-2 font-semibold text-sm hover:bg-primary/80 border-none">
                 <AppIcons.Plus className="w-5 h-5" />
                 <span>New Project</span>
             </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-gradient-to-br from-[rgba(255,255,255,0.05)] to-transparent backdrop-blur-sm p-6 rounded-xl shadow-lg flex flex-col gap-4 group hover:shadow-2xl hover:scale-[1.02] transition-all duration-300" style={{ animation: 'fade-in-up 0.5s ease-out 0.1s backwards' }}>
+            <div className="glass-card flex flex-col gap-4 group" style={{ animation: 'fade-in-up 0.5s ease-out 0.1s backwards' }}>
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-white-10 rounded-lg flex items-center justify-center"><AppIcons.React className="w-8 h-8" /></div>
                     <h3 className="text-lg font-semibold flex-1">My Web App</h3>
@@ -151,11 +151,11 @@ const ProjectsView: React.FC<{onOpenIDE: () => void}> = ({ onOpenIDE }) => (
                     <span>Updated 2 hours ago</span>
                     <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-green-400"></div> Deployed</span>
                 </div>
-                 <button onClick={onOpenIDE} className="w-full mt-2 bg-transparent text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-[var(--accent)] transition-colors duration-300 border border-[var(--border-color)] hover:border-[var(--accent)]">
+                 <button onClick={onOpenIDE} className="w-full mt-2 glass-button text-gray-700 px-4 py-2.5 text-sm font-semibold hover:bg-white/20 border border-white/30">
                     Open IDE
-                </button>
+                 </button>
             </div>
-            <div className="border-2 border-dashed border-[var(--border-color)] rounded-xl flex items-center justify-center text-center p-6 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors duration-300 cursor-pointer" style={{ animation: 'fade-in-up 0.5s ease-out 0.2s backwards' }}>
+            <div className="glass-card border-2 border-dashed border-white/30 flex items-center justify-center text-center cursor-pointer hover:border-primary/50 hover:bg-white/10 transition-all duration-300" style={{ animation: 'fade-in-up 0.5s ease-out 0.2s backwards' }}>
                 <div>
                     <AppIcons.Plus className="w-8 h-8 mx-auto mb-2 text-[var(--gray)]" />
                     <span className="font-semibold text-[var(--gray)]">Create New Project</span>
@@ -188,13 +188,13 @@ const SettingsView: React.FC = () => {
             <div className="flex gap-8 items-start">
                 <div className="w-48 flex-shrink-0 flex flex-col gap-2">
                    {tabs.map(tab => (
-                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 p-3 rounded-lg text-sm font-medium transition-colors duration-200 bg-transparent border-none ${activeTab === tab.id ? 'bg-[rgba(255,255,255,0.1)] text-white' : 'text-[var(--gray)] hover:bg-[rgba(255,255,255,0.05)]'}`}>
+                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 p-3 rounded-lg text-sm font-medium transition-all duration-200 glass-button border-none ${activeTab === tab.id ? 'bg-primary/20 text-black shadow-lg' : 'text-gray-700 hover:bg-white/20'}`}>
                            <tab.icon className="w-5 h-5"/>
                            <span>{tab.label}</span>
                         </button>
                    ))}
                 </div>
-                <div className="flex-1 bg-gradient-to-br from-[rgba(255,255,255,0.05)] to-transparent backdrop-blur-sm p-8 rounded-xl shadow-lg" style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                <div className="flex-1 glass-card p-8" style={{ animation: 'fadeIn 0.3s ease-out' }}>
                    {renderContent()}
                 </div>
             </div>
@@ -208,23 +208,23 @@ const ProfileSettings = () => (
         <form className="flex flex-col gap-6 max-w-lg">
              <div className="flex items-center gap-4">
                  <img src="/avatar.jpg" alt="User Avatar" className="w-16 h-16 rounded-full"/>
-                 <button className="bg-transparent border border-[var(--border-color)] px-4 py-2 rounded-lg text-sm font-semibold hover:bg-white-20 transition-colors">Upload new picture</button>
+                 <button className="glass-button border border-white/30 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white/20">Upload new picture</button>
              </div>
              <div className="grid grid-cols-2 gap-4">
                 <div>
                     <label className="text-sm text-[var(--gray)] mb-1 block">First Name</label>
-                    <input type="text" value="Momin" className="w-full p-2 bg-[var(--background)] rounded-md outline-none focus:ring-2 ring-[var(--accent)] border border-[var(--border-color)]" />
+                    <input type="text" value="Momin" className="w-full p-2 glass-input text-gray-800" />
                 </div>
                  <div>
                     <label className="text-sm text-[var(--gray)] mb-1 block">Last Name</label>
-                    <input type="text" value="Khan" className="w-full p-2 bg-[var(--background)] rounded-md outline-none focus:ring-2 ring-[var(--accent)] border border-[var(--border-color)]" />
+                    <input type="text" value="Khan" className="w-full p-2 glass-input text-gray-800" />
                 </div>
             </div>
              <div>
                 <label className="text-sm text-[var(--gray)] mb-1 block">Email</label>
-                <input type="email" value="momin@example.com" disabled className="w-full p-2 bg-[var(--background)] rounded-md opacity-60 cursor-not-allowed border border-[var(--border-color)]" />
+                <input type="email" value="momin@example.com" disabled className="w-full p-2 glass-input opacity-60 cursor-not-allowed text-gray-800" />
             </div>
-            <button type="submit" className="mt-4 bg-[var(--accent)] text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:brightness-110 transition-all self-start border-none">
+            <button type="submit" className="mt-4 glass-button bg-primary text-white px-6 py-2.5 font-semibold text-sm hover:bg-primary/80 self-start border-none">
                 Save Changes
             </button>
         </form>
@@ -235,12 +235,12 @@ const BillingSettings = () => (
      <div>
         <h3 className="text-xl font-bold mb-6">Billing Information</h3>
         <div className="space-y-6">
-            <div className="bg-[var(--background)] p-6 rounded-lg border border-[var(--border-color)]">
+            <div className="glass-card p-6">
                 <h4 className="font-semibold mb-1">Current Plan</h4>
                 <p className="text-3xl font-bold text-[var(--accent)] mb-2">Pro</p>
                 <p className="text-sm text-[var(--gray)]">Your plan renews on July 30, 2024.</p>
             </div>
-             <div className="bg-[var(--background)] p-6 rounded-lg border border-[var(--border-color)]">
+             <div className="glass-card p-6">
                 <h4 className="font-semibold mb-2">Payment Method</h4>
                 <div className="flex items-center gap-4">
                     <AppIcons.CreditCard className="w-8 h-8 text-[var(--gray)]"/>
@@ -258,13 +258,13 @@ const ApiKeysSettings = () => (
      <div>
         <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold">API Keys</h3>
-            <button className="flex items-center gap-2 bg-transparent border border-[var(--border-color)] text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-white-20 transition-colors">
+            <button className="flex items-center gap-2 glass-button text-gray-700 px-4 py-2 font-semibold text-sm hover:bg-white/20 border border-white/30">
                 <AppIcons.Plus className="w-5 h-5" />
                 <span>Generate New Key</span>
             </button>
         </div>
-        <div className="bg-[var(--background)] p-4 rounded-lg border border-[var(--border-color)]">
-            <p className="text-sm text-[var(--gray)]">You don't have any API keys yet.</p>
+        <div className="glass-card p-4">
+            <p className="text-sm text-gray-600">You don't have any API keys yet.</p>
         </div>
     </div>
 );

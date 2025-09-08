@@ -5,29 +5,35 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
-/* CSS VARIABLES FOR THEMING */
+/* CSS VARIABLES FOR THEMING - GLASS MORPHISM */
 @layer base {
   :root {
     --background: 60 27% 91%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
     --popover-foreground: 210 40% 98%;
     --primary: 217.2 91.2% 59.8%;
     --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
+    --secondary: 0 0% 100%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
+    --muted: 0 0% 100%;
     --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 217.2 91.2% 59.8%;
+    --accent-foreground: 222.2 84% 4.9%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border: 0 0% 90%;
+    --input: 0 0% 100%;
     --ring: 224.3 76.3% 94.1%;
     --radius: 0.75rem;
+
+    /* GLASS MORPHISM VARIABLES */
+    --glass-bg: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    --glass-hover: rgba(255, 255, 255, 0.15);
   }
 
   .light {
@@ -100,20 +106,44 @@
 @layer components {
   /* BUTTON VARIANTS */
   .btn {
-    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
   }
 
   .btn-primary {
-    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg hover:shadow-xl;
   }
 
   .btn-secondary {
-    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-lg hover:shadow-xl;
   }
 
   /* GLASS MORPHISM */
   .glass {
-    @apply bg-background/80 backdrop-blur-md border border-border/50;
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-card {
+    @apply glass rounded-xl p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl;
+  }
+
+  .glass-panel {
+    @apply glass rounded-lg border border-white/20;
+  }
+
+  .glass-button {
+    @apply glass px-4 py-2 rounded-lg font-medium transition-all duration-200 hover:bg-white/20 hover:shadow-lg active:scale-95;
+  }
+
+  .glass-input {
+    @apply glass px-3 py-2 rounded-lg border border-white/20 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-200;
+  }
+
+  .glass-sidebar {
+    @apply glass rounded-xl shadow-2xl border border-white/10;
   }
 
   /* GRADIENT TEXT */
