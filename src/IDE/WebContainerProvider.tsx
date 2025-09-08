@@ -36,6 +36,8 @@ export const WebContainerProvider: React.FC<{ children: ReactNode }> = ({ childr
             isBooted.current = true;
 
             try {
+                console.log("SharedArrayBuffer available:", typeof SharedArrayBuffer !== 'undefined');
+                console.log("Cross-origin isolated:", self.crossOriginIsolated);
                 console.log("Booting WebContainer...");
                 const wc = await WebContainer.boot();
                 setWebContainer(wc);

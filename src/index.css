@@ -60,10 +60,14 @@
   }
   
   body {
-    @apply bg-background text-foreground font-sans;
-    font-feature-settings: "rlig" 1, "calt" 1;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+      @apply bg-background text-foreground font-sans;
+      font-feature-settings: "rlig" 1, "calt" 1;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-image: url('/avatar.jpeg');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
   }
 
   /* SCROLLBAR STYLING */
