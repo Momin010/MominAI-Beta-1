@@ -21,6 +21,37 @@
           "value": "credentialless"
         }
       ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "x-vercel-protection-bypass",
+          "value": "true"
+        },
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    },
+    {
+      "source": "/icon.svg",
+      "headers": [
+        {
+          "key": "x-vercel-protection-bypass",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "source": "/lataus.jpeg",
+      "headers": [
+        {
+          "key": "x-vercel-protection-bypass",
+          "value": "true"
+        }
+      ]
     }
   ]
 }
