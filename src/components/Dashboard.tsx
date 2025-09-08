@@ -48,11 +48,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     };
     
     return (
-        <div className="flex h-screen w-screen bg-[#F5F5DC] text-[var(--foreground)] font-sans">
+        <div className="flex h-screen w-screen text-[var(--foreground)] font-sans">
             <Sidebar activeView={activeView} setActiveView={setActiveView} />
             <div className="flex-1 flex flex-col overflow-hidden">
                 <Header onLogout={onLogout} />
-                <main className="flex-1 overflow-y-auto p-8" style={{ animation: 'fadeIn 0.5s ease-out' }}>
+                <main className="flex-1 overflow-y-auto p-8 glass-overlay rounded-lg m-4" style={{ animation: 'fadeIn 0.5s ease-out' }}>
                     {renderView()}
                 </main>
             </div>
@@ -68,7 +68,7 @@ const Sidebar: React.FC<{activeView: string, setActiveView: (view: string) => vo
     ];
 
     return (
-        <aside className="w-64 glass-sidebar flex flex-col p-4 shadow-2xl m-4">
+        <aside className="w-64 glass-light flex flex-col p-4 shadow-2xl m-4 rounded-xl">
             <div className="px-2 mb-10">
                 <MominAILogo />
             </div>
@@ -108,11 +108,11 @@ const UserProfileDropdown: React.FC<{onLogout: () => void}> = ({ onLogout }) => 
                 <img src="/avatar.jpg" alt="User Avatar" className="w-8 h-8 rounded-full"/>
             </button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-48 glass-card shadow-2xl py-2" style={{animation: 'scaleIn 0.1s ease-out'}}>
-                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-white/20 hover:text-black transition-colors rounded-lg mx-2"><AppIcons.User className="w-4 h-4" /> Account</a>
-                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-white/20 hover:text-black transition-colors rounded-lg mx-2"><AppIcons.Settings className="w-4 h-4" /> Settings</a>
-                    <div className="my-2 h-px bg-white/30 mx-2"></div>
-                    <button onClick={onLogout} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-500/20 hover:text-red-700 transition-colors bg-transparent border-none rounded-lg mx-2">
+                <div className="absolute right-0 mt-2 w-48 glass-strong shadow-2xl py-2 rounded-xl" style={{animation: 'scaleIn 0.1s ease-out'}}>
+                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-white hover:bg-white/10 hover:text-white transition-colors rounded-lg mx-2"><AppIcons.User className="w-4 h-4" /> Account</a>
+                    <a href="#" className="flex items-center gap-3 px-4 py-2 text-sm text-white hover:bg-white/10 hover:text-white transition-colors rounded-lg mx-2"><AppIcons.Settings className="w-4 h-4" /> Settings</a>
+                    <div className="my-2 h-px bg-white/20 mx-2"></div>
+                    <button onClick={onLogout} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-red-300 hover:bg-red-500/20 hover:text-red-200 transition-colors bg-transparent border-none rounded-lg mx-2">
                         <AppIcons.LogOut className="w-4 h-4" />
                         Logout
                     </button>
@@ -123,8 +123,8 @@ const UserProfileDropdown: React.FC<{onLogout: () => void}> = ({ onLogout }) => 
 };
 
 const Header: React.FC<{onLogout: () => void}> = ({ onLogout }) => (
-    <header className="flex-shrink-0 h-20 flex items-center justify-between px-8 glass-panel m-4 rounded-xl">
-        <h1 className="text-xl font-semibold text-gray-800">Welcome Back, Momin</h1>
+    <header className="flex-shrink-0 h-20 flex items-center justify-between px-8 glass-light m-4 rounded-xl">
+        <h1 className="text-xl font-semibold text-white drop-shadow-lg">Welcome Back, Momin</h1>
         <div className="flex items-center gap-4">
             <UserProfileDropdown onLogout={onLogout} />
         </div>

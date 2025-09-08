@@ -30,9 +30,11 @@
     --radius: 0.75rem;
 
     /* GLASS MORPHISM VARIABLES */
-    --glass-bg: rgba(255, 255, 255, 0.1);
-    --glass-border: rgba(255, 255, 255, 0.2);
-    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    --glass-bg-strong: rgba(255, 255, 255, 0.12);
+    --glass-bg-light: rgba(255, 255, 255, 0.05);
     --glass-hover: rgba(255, 255, 255, 0.15);
   }
 
@@ -66,11 +68,16 @@
   }
   
   body {
-      @apply bg-background text-foreground font-sans;
+      @apply text-foreground font-sans;
       font-feature-settings: "rlig" 1, "calt" 1;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-      background-color: #F5F5DC;
+      background-image: url('/avatar.jpg');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      min-height: 100vh;
   }
 
   /* SCROLLBAR STYLING */
@@ -120,8 +127,24 @@
   /* GLASS MORPHISM */
   .glass {
     background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-light {
+    background: var(--glass-bg-light);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  }
+
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow);
   }
@@ -131,19 +154,25 @@
   }
 
   .glass-panel {
-    @apply glass rounded-lg border border-white/20;
+    @apply glass-light rounded-lg;
   }
 
   .glass-button {
-    @apply glass px-4 py-2 rounded-lg font-medium transition-all duration-200 hover:bg-white/20 hover:shadow-lg active:scale-95;
+    @apply glass px-4 py-2 rounded-lg font-medium transition-all duration-200 hover:bg-white/15 hover:shadow-lg active:scale-95;
   }
 
   .glass-input {
-    @apply glass px-3 py-2 rounded-lg border border-white/20 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-200;
+    @apply glass px-3 py-2 rounded-lg border border-white/15 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-200;
   }
 
   .glass-sidebar {
-    @apply glass rounded-xl shadow-2xl border border-white/10;
+    @apply glass-light rounded-xl shadow-2xl;
+  }
+
+  .glass-overlay {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   /* GRADIENT TEXT */

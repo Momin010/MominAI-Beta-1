@@ -364,10 +364,10 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                 {/* New AI-focused layout */}
                 <div className="flex-grow flex min-h-0 gap-2">
                     {/* AI Chat Panel (1/3) */}
-                    <div className="w-1/3 glass-panel overflow-hidden">
+                    <div className="w-1/3 glass-light overflow-hidden rounded-xl">
                         <div className="h-full flex flex-col">
-                            <div className="p-3 border-b border-white/20 glass-panel">
-                                <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                            <div className="p-3 border-b border-white/15 glass-light rounded-t-xl">
+                                <h3 className="text-sm font-semibold text-white drop-shadow-lg flex items-center gap-2">
                                     <Icons.Bot className="w-4 h-4" />
                                     AI Assistant
                                 </h3>
@@ -379,9 +379,9 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                     </div>
 
                     {/* Code Editor Panel (2/3) */}
-                    <div className="w-2/3 glass-panel overflow-hidden flex flex-col">
+                    <div className="w-2/3 glass-light overflow-hidden flex flex-col rounded-xl">
                         {/* Toolbar */}
-                        <div className="p-2 border-b border-white/20 glass-panel flex items-center justify-between">
+                        <div className="p-2 border-b border-white/15 glass-light flex items-center justify-between rounded-t-xl">
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
@@ -413,7 +413,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                         <div className="flex-grow flex min-h-0">
                             {/* File Tree (Collapsible) */}
                             {!fileTreeCollapsed && (
-                                <div className="w-64 border-r border-white/20 glass-panel">
+                                <div className="w-64 border-r border-white/15 glass-overlay rounded-l-xl">
                                     <FileExplorer
                                         fs={fs!}
                                         onFileSelect={handleFileSelect}
@@ -451,7 +451,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
 
                                 {/* Terminal (Toggleable) */}
                                 {terminalVisible && (
-                                    <div className="h-64 border-t border-white/20 glass-panel">
+                                    <div className="h-64 border-t border-white/15 glass-overlay rounded-b-xl">
                                         <Terminal />
                                     </div>
                                 )}
@@ -462,11 +462,11 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
 
                 {/* Zen Mode Fullscreen Editor */}
                 {isZenMode && (
-                    <div className="fixed inset-0 z-[10000] bg-[#F5F5DC]">
+                    <div className="fixed inset-0 z-[10000] glass-overlay">
                         <div className="absolute top-4 right-4 z-[10001]">
                             <button
                                 onClick={toggleZenMode}
-                                className="p-2 glass-button text-gray-700 rounded hover:bg-white/20 transition-colors"
+                                className="p-2 glass-strong text-white rounded hover:bg-white/10 transition-colors"
                                 title="Exit Zen Mode"
                             >
                                 <Icons.X className="w-5 h-5" />
