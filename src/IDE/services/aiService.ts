@@ -9,7 +9,7 @@ const getAI = (): OpenAI => {
   if (!import.meta.env.VITE_API_KEY) {
     throw new Error("API Key not found. Please ensure the VITE_API_KEY environment variable is set.");
   }
-  return new OpenAI({ apiKey: import.meta.env.VITE_API_KEY });
+  return new OpenAI({ apiKey: import.meta.env.VITE_API_KEY, dangerouslyAllowBrowser: true });
 };
 
 
