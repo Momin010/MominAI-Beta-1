@@ -6,7 +6,7 @@
 import React, { useState, useCallback, useRef, createContext, useContext, ReactNode, useEffect } from 'react';
 
 // Providers & Hooks
-import { WebContainerProvider, useWebContainer } from './WebContainerProvider.tsx';
+import { RemoteVMProvider, useRemoteVM } from './RemoteVMProvider.tsx';
 import { useFileSystem } from './hooks/useFileSystem.ts';
 import { useLocalStorageState } from '../hooks/useLocalStorageState.ts';
 import { ThemeProvider } from './contexts/ThemeContext.tsx';
@@ -20,7 +20,7 @@ import { getAllFiles } from './utils/fsUtils.ts';
 // UI Components
 import Loader from './components/Loader.tsx';
 import ResizablePanels from './components/ResizablePanels.tsx';
-import { Terminal } from './components/Terminal.tsx';
+import { WebSocketTerminal } from './components/WebSocketTerminal.tsx';
 import EditorPane from './components/EditorPane.tsx';
 import ActivityBar from './components/ActivityBar.tsx';
 import SideBar from './components/SideBar.tsx';
@@ -112,7 +112,7 @@ interface IDEWorkspaceProps {
 }
 
 const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
-    const { isLoading: isWcLoading, error, serverUrl, isCrossOriginIsolated } = useWebContainer();
+    const { isConnected, serverUrl, error, connect } = useRemoteVM();
     const { fs, isLoading: isFsLoading, updateNode, createNode, deleteNode, renameNode, moveNode } = useFileSystem();
     const { registerCommand } = useCommandPalette();
     
@@ -314,7 +314,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
         });
     }, [registerCommand, toggleZenMode]);
 
-    if (isWcLoading || isFsLoading) {
+    if (!isConnected || isFsLoading) {
         return <Loader />;
     }
 
@@ -372,7 +372,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                     addNotification={addNotification}
                 />
 
-                {!isZenMode && <TitleBar onTogglePanel={togglePanel} panelVisibility={panelVisibility} onLogout={onLogout} onClose={onClose} isCrossOriginIsolated={isCrossOriginIsolated} />}
+                {!isZenMode && <TitleBar onTogglePanel={togglePanel} panelVisibility={panelVisibility} onLogout={onLogout} onClose={onClose} isCrossOriginIsolated={true} />}
 
                 {/* New AI-focused layout */}
                 <div className="flex-grow flex min-h-0 gap-2">
@@ -465,14 +465,21 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                                 {/* Terminal (Toggleable) */}
                                 {terminalVisible && (
                                     <div className="h-64 border-t border-white/15 glass-overlay rounded-b-xl">
-                                        <Terminal shouldRunSetup={showPreview} />
+                                        <WebSocketTerminal
+                                            terminalId="main-terminal"
+                                            isVisible={terminalVisible}
+                                            onToggle={() => setTerminalVisible(false)}
+                                        />
                                     </div>
                                 )}
 
-                                {/* Hidden Terminal for Background Setup */}
+                                {/* Hidden Terminal for Background Setup - Only when preview is shown and terminal is hidden */}
                                 {!terminalVisible && showPreview && (
                                     <div className="hidden">
-                                        <Terminal shouldRunSetup={true} />
+                                        <WebSocketTerminal
+                                            terminalId="background-terminal"
+                                            isVisible={false}
+                                        />
                                     </div>
                                 )}
                             </div>
@@ -521,9 +528,9 @@ const App: React.FC<AppProps> = ({ onLogout, onClose }) => {
         <ThemeProvider>
             <CommandPaletteProvider>
                 <NotificationProvider>
-                    <WebContainerProvider>
+                    <RemoteVMProvider>
                         <IDEWorkspace onLogout={onLogout} onClose={onClose} />
-                    </WebContainerProvider>
+                    </RemoteVMProvider>
                 </NotificationProvider>
             </CommandPaletteProvider>
         </ThemeProvider>
