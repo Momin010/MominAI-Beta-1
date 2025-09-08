@@ -1,8 +1,8 @@
 
 
 import React, { useEffect, useRef } from 'react';
-import { Terminal as XtermTerminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
+import { Terminal as XtermTerminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import { useWebContainer } from '../WebContainerProvider.tsx';
 
 export const Terminal: React.FC = () => {
