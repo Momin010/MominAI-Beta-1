@@ -78,6 +78,29 @@
       background-repeat: no-repeat;
       background-attachment: fixed;
       min-height: 100vh;
+      background-color: #f5f5dc; /* Fallback cream color */
+  }
+
+  /* Ensure no other backgrounds override the image */
+  html, #root {
+      background: transparent;
+  }
+
+  /* Force background image visibility */
+  body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: url('/avatar.jpg');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      z-index: -1;
+      pointer-events: none;
   }
 
   /* SCROLLBAR STYLING */
@@ -134,11 +157,11 @@
   }
 
   .glass-light {
-    background: var(--glass-bg-light);
-    backdrop-filter: blur(15px);
-    -webkit-backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   }
 
   .glass-strong {
@@ -170,9 +193,9 @@
   }
 
   .glass-overlay {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.01);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   /* GRADIENT TEXT */
