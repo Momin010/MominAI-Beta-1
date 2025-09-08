@@ -621,11 +621,6 @@ The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-pan
         response_format: { type: 'json_object' }
     });
     return JSON.parse(response.choices[0].message.content.trim());
-    } catch (error) {
-        console.error("Error scaffolding project with AI:", error);
-        // Return fallback project structure
-        return getFallbackProject(prompt);
-    }
 };
 
 export const migrateCode = async (code: string, from: string, to: string): Promise<string> => {
@@ -668,7 +663,7 @@ export const scaffoldProject = async (prompt: string): Promise<Record<string, st
 
         const ai = getAI();
 
-    const fullPrompt = `🚀 COMPLETE PROJECT SCAFFOLDING WITH INDUSTRY RESEARCH
+        const fullPrompt = `🚀 COMPLETE PROJECT SCAFFOLDING WITH INDUSTRY RESEARCH
 
 USER REQUEST: "${prompt}"
 
@@ -752,14 +747,19 @@ CRITICAL DIRECTORY REQUIREMENTS:
 
 Generate the complete, industry-researched, production-ready project structure now:`;
 
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: fullPrompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.2, // Lower temperature for more consistent project structure
-        max_tokens: 8000 // Allow for comprehensive project generation
-    });
-    return JSON.parse(response.choices[0].message.content.trim());
+        const response = await ai.chat.completions.create({
+            model: 'openai/gpt-4o-mini',
+            messages: [{ role: 'user', content: fullPrompt }],
+            response_format: { type: 'json_object' },
+            temperature: 0.2, // Lower temperature for more consistent project structure
+            max_tokens: 8000 // Allow for comprehensive project generation
+        });
+        return JSON.parse(response.choices[0].message.content.trim());
+    } catch (error) {
+        console.error("Error scaffolding project with AI:", error);
+        // Return fallback project structure
+        return getFallbackProject(prompt);
+    }
 };
 
 export const analyzeDependencies = async (packageJsonContent: string): Promise<DependencyReport> => {
