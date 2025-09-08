@@ -64,10 +64,7 @@
       font-feature-settings: "rlig" 1, "calt" 1;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-      background-image: url('/avatar.jpeg');
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
+      background-color: #F5F5DC;
   }
 
   /* SCROLLBAR STYLING */
