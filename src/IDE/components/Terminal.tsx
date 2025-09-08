@@ -5,13 +5,54 @@ import { Terminal as XtermTerminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useWebContainer } from '../WebContainerProvider.tsx';
 
-export const Terminal: React.FC = () => {
+interface TerminalProps {
+    shouldRunSetup?: boolean;
+}
+
+export const Terminal: React.FC<TerminalProps> = ({ shouldRunSetup = false }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const { webContainer } = useWebContainer();
     const isTerminalAttached = useRef(false);
+    const hasRunSetup = useRef(false);
+
+    // Background setup function that runs npm processes without UI
+    const runBackgroundSetup = async (container: any) => {
+        try {
+            console.log('Running background setup...');
+
+            // 1. Install dependencies
+            console.log('Installing dependencies...');
+            const installProcess = await container.spawn('npm', ['install']);
+            const installExitCode = await installProcess.exit;
+            if (installExitCode !== 0) {
+                console.error('Background installation failed');
+                return;
+            }
+            console.log('Dependencies installed successfully');
+
+            // 2. Start dev server
+            console.log('Starting dev server...');
+            const devProcess = await container.spawn('npm', ['run', 'dev']);
+            // Keep dev server running in background
+            console.log('Dev server started in background');
+        } catch (error) {
+            console.error('Background setup failed:', error);
+        }
+    };
 
     useEffect(() => {
-        if (!webContainer || isTerminalAttached.current || !terminalRef.current) {
+        if (!webContainer) {
+            return;
+        }
+
+        // Run setup if requested and not already run
+        if (shouldRunSetup && !hasRunSetup.current) {
+            hasRunSetup.current = true;
+            runBackgroundSetup(webContainer);
+        }
+
+        // Only attach terminal UI if visible and not already attached
+        if (!terminalRef.current || isTerminalAttached.current) {
             return;
         }
 
@@ -26,7 +67,7 @@ export const Terminal: React.FC = () => {
         terminal.loadAddon(fitAddon);
         terminal.open(terminalRef.current);
         fitAddon.fit();
-        
+
         const resizeObserver = new ResizeObserver(() => {
             requestAnimationFrame(() => fitAddon.fit());
         });
@@ -69,7 +110,7 @@ export const Terminal: React.FC = () => {
             terminal.dispose();
             isTerminalAttached.current = false;
         };
-    }, [webContainer]);
+    }, [webContainer, shouldRunSetup]);
 
     return (
         <div className="h-full w-full">

@@ -148,7 +148,20 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
     const [previewKey, setPreviewKey] = useState(0);
 
     const refreshPreview = useCallback(() => {
-        setPreviewKey(prev => prev + 1);
+        // Instead of reloading the entire iframe, try to refresh the content
+        if (previewIframeRef.current && previewIframeRef.current.contentWindow) {
+            try {
+                // Try to reload just the iframe content without full page reload
+                previewIframeRef.current.contentWindow.location.reload();
+            } catch (error) {
+                // Fallback to key-based reload if cross-origin issues
+                console.log('Using fallback preview refresh');
+                setPreviewKey(prev => prev + 1);
+            }
+        } else {
+            // Fallback for when iframe isn't ready
+            setPreviewKey(prev => prev + 1);
+        }
     }, []);
 
      const getFileContent = useCallback((path: string | null): string => {
@@ -452,7 +465,14 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                                 {/* Terminal (Toggleable) */}
                                 {terminalVisible && (
                                     <div className="h-64 border-t border-white/15 glass-overlay rounded-b-xl">
-                                        <Terminal />
+                                        <Terminal shouldRunSetup={showPreview} />
+                                    </div>
+                                )}
+
+                                {/* Hidden Terminal for Background Setup */}
+                                {!terminalVisible && showPreview && (
+                                    <div className="hidden">
+                                        <Terminal shouldRunSetup={true} />
                                     </div>
                                 )}
                             </div>

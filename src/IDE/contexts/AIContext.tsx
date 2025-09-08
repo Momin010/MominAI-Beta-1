@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
 import type { Message, EditorAIAction, FileAction, FileSystemNode } from '../types';
 import { streamAIResponse } from '../services/aiService';
 import { useNotifications } from '../App';
@@ -57,77 +57,137 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
         { sender: 'ai', text: "Hello! I'm your AI assistant. I have full context of your project and can help with multi-file changes. Ask away!" }
     ]);
     const [isLoading, setIsLoading] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const [internetAccessEnabled, setInternetAccessEnabled] = useState(() => {
         return internetAccessService.isInternetAccessEnabled();
     });
     const { addNotification } = useNotifications();
 
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
+    }, []);
+
     const sendMessage = useCallback(async (prompt: string) => {
         if (isLoading || !fs) return;
+
+        // Cancel any existing request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        // Create new abort controller for this request
+        abortControllerRef.current = new AbortController();
+
         setIsLoading(true);
 
-        const allFiles = getAllFiles(fs, '/');
-        const projectContext = allFiles.length > 0
-            ? `\n\nHere is the full project structure and content for context:\n` + allFiles.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n')
-            : '';
-        
-        const fullPrompt = `${prompt}${projectContext}`;
-        
-        const userMessage: Message = { sender: 'user', text: prompt };
-        // Store the original contents of the files the AI might change
-        userMessage.originalFileContents = allFiles;
+        try {
+            const allFiles = getAllFiles(fs, '/');
+            const projectContext = allFiles.length > 0
+                ? `\n\nHere is the full project structure and content for context:\n` + allFiles.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n')
+                : '';
 
-        const aiMessagePlaceholder: Message = { sender: 'ai', text: '', isStreaming: true };
-        setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
-        
-        let fullResponse = '';
-        const stream = streamAIResponse(fullPrompt);
+            const fullPrompt = `${prompt}${projectContext}`;
 
-        for await (const chunk of stream) {
-            fullResponse += chunk;
+            const userMessage: Message = { sender: 'user', text: prompt };
+            // Store the original contents of the files the AI might change
+            userMessage.originalFileContents = allFiles;
+
+            const aiMessagePlaceholder: Message = { sender: 'ai', text: '', isStreaming: true };
+            setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
+
+            let fullResponse = '';
+            const stream = streamAIResponse(fullPrompt);
+
+            // Check for abort signal
+            for await (const chunk of stream) {
+                if (abortControllerRef.current?.signal.aborted) {
+                    console.log('AI request was cancelled');
+                    return;
+                }
+
+                fullResponse += chunk;
+                setMessages(prev => {
+                    const newMessages = [...prev];
+                    const lastMessage = newMessages[newMessages.length - 1];
+                    if (lastMessage && lastMessage.sender === 'ai') {
+                        lastMessage.text = fullResponse;
+                    }
+                    return newMessages;
+                });
+            }
+
+            // Stream finished, now process the full response
+            let finalAiMessage: Message = { sender: 'ai', text: fullResponse, isStreaming: false };
+            const jsonStart = fullResponse.indexOf('{');
+            const jsonEnd = fullResponse.lastIndexOf('}');
+
+            if (jsonStart !== -1 && jsonEnd > jsonStart) {
+                const jsonString = fullResponse.substring(jsonStart, jsonEnd + 1);
+                try {
+                    const parsed = JSON.parse(jsonString);
+                    if (parsed.explanation && parsed.actions && Array.isArray(parsed.actions)) {
+                        finalAiMessage = {
+                            sender: 'ai',
+                            text: parsed.explanation,
+                            actions: parsed.actions,
+                            actionsApplied: false,
+                            originalFileContents: allFiles,
+                        };
+                    }
+                } catch (e) {
+                    // It wasn't a valid JSON action object, so we'll just treat it as a text response.
+                    console.warn("AI response contained JSON-like characters but failed to parse:", e);
+                }
+            }
+
+            setMessages(prev => {
+                const newMessages = [...prev];
+                newMessages[newMessages.length - 1] = finalAiMessage;
+                return newMessages;
+            });
+
+        } catch (error) {
+            console.error("Error in AI conversation:", error);
+
+            // Handle different types of errors
+            let errorMessage = 'An unexpected error occurred while processing your request.';
+            if (error instanceof Error) {
+                if (error.name === 'AbortError') {
+                    errorMessage = 'Request was cancelled.';
+                } else if (error.message.includes('500')) {
+                    errorMessage = 'AI service is temporarily unavailable. Please try again later.';
+                } else if (error.message.includes('429')) {
+                    errorMessage = 'Too many requests. Please wait a moment before trying again.';
+                } else if (error.message.includes('401')) {
+                    errorMessage = 'Authentication failed. Please check your API key.';
+                } else {
+                    errorMessage = error.message;
+                }
+            }
+
+            // Update the last AI message with error
             setMessages(prev => {
                 const newMessages = [...prev];
                 const lastMessage = newMessages[newMessages.length - 1];
                 if (lastMessage && lastMessage.sender === 'ai') {
-                    lastMessage.text = fullResponse;
+                    lastMessage.text = `❌ Error: ${errorMessage}`;
+                    lastMessage.isStreaming = false;
                 }
                 return newMessages;
             });
+
+            addNotification({ type: 'error', message: errorMessage });
+        } finally {
+            setIsLoading(false);
+            abortControllerRef.current = null;
         }
 
-        // Stream finished, now process the full response
-        let finalAiMessage: Message = { sender: 'ai', text: fullResponse, isStreaming: false };
-        const jsonStart = fullResponse.indexOf('{');
-        const jsonEnd = fullResponse.lastIndexOf('}');
-
-        if (jsonStart !== -1 && jsonEnd > jsonStart) {
-            const jsonString = fullResponse.substring(jsonStart, jsonEnd + 1);
-            try {
-                const parsed = JSON.parse(jsonString);
-                if (parsed.explanation && parsed.actions && Array.isArray(parsed.actions)) {
-                    finalAiMessage = {
-                        sender: 'ai',
-                        text: parsed.explanation,
-                        actions: parsed.actions,
-                        actionsApplied: false,
-                        originalFileContents: allFiles,
-                    };
-                }
-            } catch (e) {
-                // It wasn't a valid JSON action object, so we'll just treat it as a text response.
-                console.warn("AI response contained JSON-like characters but failed to parse:", e);
-            }
-        }
-        
-        setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = finalAiMessage;
-            return newMessages;
-        });
-
-        setIsLoading(false);
-
-    }, [isLoading, fs]);
+    }, [isLoading, fs, addNotification]);
 
     const processStream = useCallback(async (userMessage: Message, stream: AsyncGenerator<string>) => {
         if (isLoading) return;
@@ -185,41 +245,64 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
 
     }, [processStream]);
 
-    const applyChanges = useCallback((messageIndex: number, actions: FileAction[]) => {
+    const applyChanges = useCallback(async (messageIndex: number, actions: FileAction[]) => {
         const message = messages[messageIndex];
         if (!message) {
             addNotification({ type: 'error', message: "Could not find message to apply changes." });
             return;
         }
 
-        // Apply each action
-        actions.forEach(action => {
-            if (action.action === 'create') {
-                if (action.type === 'directory') {
-                    createNode(action.path, 'directory');
-                } else if (action.type === 'file') {
-                    createNode(action.path, 'file', action.content || '');
+        try {
+            // Apply each action in real-time
+            for (const action of actions) {
+                if (action.action === 'create') {
+                    if (action.type === 'directory') {
+                        await createNode(action.path, 'directory');
+                        addNotification({ type: 'info', message: `Created directory: ${action.path}` });
+                    } else if (action.type === 'file') {
+                        await createNode(action.path, 'file', action.content || '');
+                        addNotification({ type: 'info', message: `Created file: ${action.path}` });
+                    }
+                } else if (action.action === 'update') {
+                    await updateNode(action.path, action.content || '');
+                    addNotification({ type: 'info', message: `Updated file: ${action.path}` });
                 }
-            } else if (action.action === 'update') {
-                updateNode(action.path, action.content || '');
             }
-        });
 
-        // Mark actions as applied
-        setMessages(prev => {
-            const newMessages = [...prev];
-            if (newMessages[messageIndex]) {
-                newMessages[messageIndex].actionsApplied = true;
+            // Mark actions as applied
+            setMessages(prev => {
+                const newMessages = [...prev];
+                if (newMessages[messageIndex]) {
+                    newMessages[messageIndex].actionsApplied = true;
+                }
+                return newMessages;
+            });
+
+            // Only refresh preview if we actually made changes that affect the preview
+            const hasRelevantChanges = actions.some(action =>
+                action.path.endsWith('.html') ||
+                action.path.endsWith('.jsx') ||
+                action.path.endsWith('.tsx') ||
+                action.path.endsWith('.vue') ||
+                action.path === '/src/App.jsx' ||
+                action.path === '/index.html'
+            );
+
+            if (hasRelevantChanges && refreshPreview) {
+                // Use a small delay to allow file system to update
+                setTimeout(() => {
+                    refreshPreview();
+                }, 500);
             }
-            return newMessages;
-        });
 
-        // Refresh preview after AI changes
-        if (refreshPreview) {
-            refreshPreview();
+            addNotification({ type: 'success', message: `Successfully applied ${actions.length} change(s)!` });
+        } catch (error) {
+            console.error("Error applying changes:", error);
+            addNotification({
+                type: 'error',
+                message: `Failed to apply changes: ${error instanceof Error ? error.message : 'Unknown error'}`
+            });
         }
-
-        addNotification({ type: 'success', message: "Changes applied successfully." });
     }, [messages, addNotification, createNode, updateNode, setMessages, refreshPreview]);
 
     // Internet access features (safely removable)
