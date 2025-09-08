@@ -123,8 +123,9 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
     }, []);
 
     const createTerminal = useCallback((terminalId: string) => {
-        wsClient.createTerminal(terminalId);
-    }, [wsClient]);
+        // Terminal is automatically created when container starts
+        console.log(`Terminal ${terminalId} ready (container-based)`);
+    }, []);
 
     const runCommand = useCallback((command: string, args: string[] = [], cwd = '/tmp', env: Record<string, string> = {}) => {
         return wsClient.runCommand(command, args, cwd, env);

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useRemoteVM } from '../RemoteVMProvider';
+import { getWebSocketClient } from '../../services/websocketClient';
 import { Icons } from './Icon';
 
 interface WebSocketTerminalProps {
@@ -22,19 +23,20 @@ export const WebSocketTerminal: React.FC<WebSocketTerminalProps> = ({
 
     const {
         createTerminal,
-        runCommand,
         onTerminalOutput,
         onProcessOutput,
         isConnected: vmConnected,
         error
     } = useRemoteVM();
 
-    // Handle terminal output
-    const handleTerminalOutput = useCallback((data: any) => {
-        if (data.terminalId === terminalId) {
+    const wsClient = getWebSocketClient();
+
+    // Handle container output
+    const handleContainerOutput = useCallback((data: any) => {
+        if (data.sessionId) {
             setTerminalOutput(prev => [...prev, data.data]);
         }
-    }, [terminalId]);
+    }, []);
 
     // Handle process output
     const handleProcessOutput = useCallback((data: any) => {
@@ -43,11 +45,14 @@ export const WebSocketTerminal: React.FC<WebSocketTerminalProps> = ({
 
     // Set up message handlers
     useEffect(() => {
-        onTerminalOutput(handleTerminalOutput);
+        wsClient.onMessage('container_output', handleContainerOutput);
         onProcessOutput(handleProcessOutput);
 
-        // No cleanup needed for these handlers as they're managed by the WebSocket client
-    }, [onTerminalOutput, onProcessOutput, handleTerminalOutput, handleProcessOutput]);
+        // Cleanup handlers
+        return () => {
+            wsClient.offMessage('container_output', handleContainerOutput);
+        };
+    }, [wsClient, handleContainerOutput, onProcessOutput, handleProcessOutput]);
 
     // Initialize terminal
     useEffect(() => {
@@ -70,12 +75,12 @@ export const WebSocketTerminal: React.FC<WebSocketTerminalProps> = ({
         // Display command in terminal
         setTerminalOutput(prev => [...prev, `$ ${command}`]);
 
-        // Execute command via WebSocket
-        const processId = runCommand('bash', ['-c', command], '/tmp');
+        // Execute command via WebSocket to container
+        wsClient.sendContainerCommand(command);
 
         // Clear input
         setCurrentInput('');
-    }, [runCommand]);
+    }, [wsClient]);
 
     // Handle keyboard input
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

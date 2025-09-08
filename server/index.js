@@ -14,27 +14,77 @@ const wss = new WebSocket.Server({ server });
 app.use(cors());
 app.use(express.json());
 
-// In-memory storage for sessions (in production, use Redis/database)
-const sessions = new Map();
-const terminals = new Map();
-const processes = new Map();
+// Configuration
+const CONFIG = {
+    USER_WORKSPACE_BASE: '/home/ide/users',
+    CONTAINER_IMAGE: 'node:20-bullseye',
+    CONTAINER_CPU_LIMIT: '0.5',
+    CONTAINER_MEMORY_LIMIT: '512m',
+    SESSION_IDLE_TIMEOUT: 30 * 60 * 1000, // 30 minutes
+    MAX_SESSIONS: 50, // Limit concurrent sessions
+    DOCKER_NETWORK: 'ide-network'
+};
+
+// In-memory storage for sessions and containers
+const sessions = new Map(); // sessionId -> session data
+const containers = new Map(); // sessionId -> container process
+const sessionTimers = new Map(); // sessionId -> idle timeout timer
+
+// Ensure user workspace directory exists
+async function ensureWorkspaceDirectory(sessionId) {
+    const userWorkspace = path.join(CONFIG.USER_WORKSPACE_BASE, sessionId);
+    try {
+        await fs.access(userWorkspace);
+    } catch (error) {
+        await fs.mkdir(userWorkspace, { recursive: true });
+        console.log(`Created workspace for session: ${sessionId}`);
+    }
+    return userWorkspace;
+}
 
 // WebSocket connection handler
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
     const sessionId = req.url.split('/').pop();
     console.log(`New WebSocket connection for session: ${sessionId}`);
 
-    // Store connection
-    sessions.set(sessionId, {
-        ws,
-        terminals: new Map(),
-        processes: new Map(),
-        files: new Map()
-    });
+    // Check session limit
+    if (sessions.size >= CONFIG.MAX_SESSIONS) {
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Server at capacity. Please try again later.'
+        }));
+        ws.close();
+        return;
+    }
+
+    // Create or get existing session
+    let session = sessions.get(sessionId);
+    if (!session) {
+        session = {
+            ws,
+            sessionId,
+            connectedAt: Date.now(),
+            lastActivity: Date.now(),
+            container: null,
+            workspacePath: null
+        };
+        sessions.set(sessionId, session);
+
+        // Create workspace directory
+        session.workspacePath = await ensureWorkspaceDirectory(sessionId);
+
+        // Start container for this session
+        await startContainerForSession(sessionId);
+    } else {
+        // Update existing session with new WebSocket
+        session.ws = ws;
+        session.lastActivity = Date.now();
+    }
 
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message.toString());
+            session.lastActivity = Date.now();
             await handleMessage(sessionId, data);
         } catch (error) {
             console.error('Error handling message:', error);
@@ -47,16 +97,137 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         console.log(`WebSocket connection closed for session: ${sessionId}`);
-        cleanupSession(sessionId);
+        // Don't cleanup immediately - keep container running for reconnection
+        // Cleanup will happen on idle timeout
     });
 
     // Send welcome message
     ws.send(JSON.stringify({
         type: 'connected',
         sessionId,
-        message: 'Connected to Remote VM Bridge'
+        message: 'Connected to Docker VM Bridge',
+        workspacePath: session.workspacePath
     }));
 });
+
+// Docker container management
+async function startContainerForSession(sessionId) {
+    const session = sessions.get(sessionId);
+    if (!session) return;
+
+    const containerName = `ide_session_${sessionId}`;
+    const workspacePath = session.workspacePath;
+
+    console.log(`Starting Docker container for session: ${sessionId}`);
+
+    try {
+        // Check if container already exists
+        const existingContainer = containers.get(sessionId);
+        if (existingContainer) {
+            console.log(`Container already exists for session: ${sessionId}`);
+            return;
+        }
+
+        // Start new Docker container
+        const containerProcess = spawn('docker', [
+            'run',
+            '--rm',
+            '-i',
+            '--name', containerName,
+            '-v', `${workspacePath}:/workspace`,
+            '--cpus', CONFIG.CONTAINER_CPU_LIMIT,
+            '--memory', CONFIG.CONTAINER_MEMORY_LIMIT,
+            '--network', CONFIG.DOCKER_NETWORK,
+            '--workdir', '/workspace',
+            '-e', 'PS1=$ ',
+            CONFIG.CONTAINER_IMAGE,
+            'bash'
+        ], {
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        // Store container reference
+        containers.set(sessionId, {
+            process: containerProcess,
+            name: containerName,
+            startedAt: Date.now()
+        });
+
+        // Handle container output
+        containerProcess.stdout.on('data', (data) => {
+            const session = sessions.get(sessionId);
+            if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
+                session.ws.send(JSON.stringify({
+                    type: 'container_output',
+                    sessionId,
+                    data: data.toString()
+                }));
+            }
+        });
+
+        containerProcess.stderr.on('data', (data) => {
+            const session = sessions.get(sessionId);
+            if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
+                session.ws.send(JSON.stringify({
+                    type: 'container_output',
+                    sessionId,
+                    data: data.toString()
+                }));
+            }
+        });
+
+        containerProcess.on('exit', (code) => {
+            console.log(`Container ${containerName} exited with code: ${code}`);
+            containers.delete(sessionId);
+
+            const session = sessions.get(sessionId);
+            if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
+                session.ws.send(JSON.stringify({
+                    type: 'container_exit',
+                    sessionId,
+                    code
+                }));
+            }
+        });
+
+        containerProcess.on('error', (error) => {
+            console.error(`Container ${containerName} error:`, error);
+            containers.delete(sessionId);
+        });
+
+        // Set up idle timeout
+        setupIdleTimeout(sessionId);
+
+        console.log(`Docker container started: ${containerName}`);
+
+    } catch (error) {
+        console.error(`Failed to start container for session ${sessionId}:`, error);
+        const session = sessions.get(sessionId);
+        if (session && session.ws) {
+            session.ws.send(JSON.stringify({
+                type: 'error',
+                message: `Failed to start container: ${error.message}`
+            }));
+        }
+    }
+}
+
+// Idle timeout management
+function setupIdleTimeout(sessionId) {
+    // Clear existing timer
+    const existingTimer = sessionTimers.get(sessionId);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+    }
+
+    // Set new timer
+    const timer = setTimeout(async () => {
+        console.log(`Session ${sessionId} idle timeout - cleaning up`);
+        await cleanupSession(sessionId);
+    }, CONFIG.SESSION_IDLE_TIMEOUT);
+
+    sessionTimers.set(sessionId, timer);
+}
 
 // Message handler
 async function handleMessage(sessionId, data) {
@@ -66,16 +237,8 @@ async function handleMessage(sessionId, data) {
     const { type, payload } = data;
 
     switch (type) {
-        case 'create_terminal':
-            await createTerminal(sessionId, payload);
-            break;
-
-        case 'terminal_input':
-            await handleTerminalInput(sessionId, payload);
-            break;
-
-        case 'run_command':
-            await runCommand(sessionId, payload);
+        case 'container_command':
+            await handleContainerCommand(sessionId, payload);
             break;
 
         case 'read_file':
@@ -102,8 +265,8 @@ async function handleMessage(sessionId, data) {
             await startDevServer(sessionId, payload);
             break;
 
-        case 'stop_process':
-            await stopProcess(sessionId, payload);
+        case 'stop_container':
+            await stopContainer(sessionId);
             break;
 
         default:
@@ -111,71 +274,34 @@ async function handleMessage(sessionId, data) {
     }
 }
 
-// Terminal management
-async function createTerminal(sessionId, payload) {
-    const session = sessions.get(sessionId);
-    const terminalId = payload.terminalId || `term_${Date.now()}`;
+// Container command handling
+async function handleContainerCommand(sessionId, payload) {
+    const { command } = payload;
+    const container = containers.get(sessionId);
+
+    if (!container) {
+        const session = sessions.get(sessionId);
+        if (session && session.ws) {
+            session.ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Container not available for session'
+            }));
+        }
+        return;
+    }
 
     try {
-        // Create PTY process
-        const pty = spawn('bash', [], {
-            cwd: '/tmp',
-            env: { ...process.env, PS1: '$ ' }
-        });
-
-        // Store terminal
-        session.terminals.set(terminalId, {
-            pty,
-            id: terminalId
-        });
-
-        // Handle PTY output
-        pty.stdout.on('data', (data) => {
-            session.ws.send(JSON.stringify({
-                type: 'terminal_output',
-                terminalId,
-                data: data.toString()
-            }));
-        });
-
-        pty.stderr.on('data', (data) => {
-            session.ws.send(JSON.stringify({
-                type: 'terminal_output',
-                terminalId,
-                data: data.toString()
-            }));
-        });
-
-        pty.on('exit', (code) => {
-            session.ws.send(JSON.stringify({
-                type: 'terminal_exit',
-                terminalId,
-                code
-            }));
-            session.terminals.delete(terminalId);
-        });
-
-        // Send success response
-        session.ws.send(JSON.stringify({
-            type: 'terminal_created',
-            terminalId
-        }));
-
+        // Send command to container
+        container.process.stdin.write(command + '\n');
     } catch (error) {
-        session.ws.send(JSON.stringify({
-            type: 'error',
-            message: `Failed to create terminal: ${error.message}`
-        }));
-    }
-}
-
-async function handleTerminalInput(sessionId, payload) {
-    const session = sessions.get(sessionId);
-    const { terminalId, input } = payload;
-    const terminal = session.terminals.get(terminalId);
-
-    if (terminal) {
-        terminal.pty.stdin.write(input);
+        console.error(`Failed to send command to container ${sessionId}:`, error);
+        const session = sessions.get(sessionId);
+        if (session && session.ws) {
+            session.ws.send(JSON.stringify({
+                type: 'error',
+                message: `Failed to execute command: ${error.message}`
+            }));
+        }
     }
 }
 
@@ -244,13 +370,18 @@ async function runCommand(sessionId, payload) {
     }
 }
 
-// File operations
+// File operations (work with host file system, mapped to container)
 async function readFile(sessionId, payload) {
     const session = sessions.get(sessionId);
+    if (!session) return;
+
     const { path: filePath } = payload;
 
     try {
-        const content = await fs.readFile(filePath, 'utf8');
+        // Convert container path to host path
+        const hostPath = path.join(session.workspacePath, filePath.replace(/^\/workspace/, ''));
+        const content = await fs.readFile(hostPath, 'utf8');
+
         session.ws.send(JSON.stringify({
             type: 'file_content',
             path: filePath,
@@ -266,10 +397,15 @@ async function readFile(sessionId, payload) {
 
 async function writeFile(sessionId, payload) {
     const session = sessions.get(sessionId);
+    if (!session) return;
+
     const { path: filePath, content } = payload;
 
     try {
-        await fs.writeFile(filePath, content, 'utf8');
+        // Convert container path to host path
+        const hostPath = path.join(session.workspacePath, filePath.replace(/^\/workspace/, ''));
+        await fs.writeFile(hostPath, content, 'utf8');
+
         session.ws.send(JSON.stringify({
             type: 'file_written',
             path: filePath
@@ -284,14 +420,19 @@ async function writeFile(sessionId, payload) {
 
 async function listDirectory(sessionId, payload) {
     const session = sessions.get(sessionId);
+    if (!session) return;
+
     const { path: dirPath } = payload;
 
     try {
-        const items = await fs.readdir(dirPath, { withFileTypes: true });
+        // Convert container path to host path
+        const hostPath = path.join(session.workspacePath, dirPath.replace(/^\/workspace/, ''));
+        const items = await fs.readdir(hostPath, { withFileTypes: true });
+
         const result = items.map(item => ({
             name: item.name,
             type: item.isDirectory() ? 'directory' : 'file',
-            path: path.join(dirPath, item.name)
+            path: path.posix.join(dirPath, item.name)
         }));
 
         session.ws.send(JSON.stringify({
@@ -309,10 +450,15 @@ async function listDirectory(sessionId, payload) {
 
 async function createDirectory(sessionId, payload) {
     const session = sessions.get(sessionId);
+    if (!session) return;
+
     const { path: dirPath } = payload;
 
     try {
-        await fs.mkdir(dirPath, { recursive: true });
+        // Convert container path to host path
+        const hostPath = path.join(session.workspacePath, dirPath.replace(/^\/workspace/, ''));
+        await fs.mkdir(hostPath, { recursive: true });
+
         session.ws.send(JSON.stringify({
             type: 'directory_created',
             path: dirPath
@@ -327,14 +473,19 @@ async function createDirectory(sessionId, payload) {
 
 async function deleteFile(sessionId, payload) {
     const session = sessions.get(sessionId);
+    if (!session) return;
+
     const { path: filePath } = payload;
 
     try {
-        const stat = await fs.stat(filePath);
+        // Convert container path to host path
+        const hostPath = path.join(session.workspacePath, filePath.replace(/^\/workspace/, ''));
+        const stat = await fs.stat(hostPath);
+
         if (stat.isDirectory()) {
-            await fs.rmdir(filePath, { recursive: true });
+            await fs.rmdir(hostPath, { recursive: true });
         } else {
-            await fs.unlink(filePath);
+            await fs.unlink(hostPath);
         }
 
         session.ws.send(JSON.stringify({
@@ -352,22 +503,35 @@ async function deleteFile(sessionId, payload) {
 // Development server management
 async function startDevServer(sessionId, payload) {
     const session = sessions.get(sessionId);
-    const { cwd = '/tmp', port = 5173 } = payload;
+    if (!session) return;
 
-    // Check if package.json exists
+    const { cwd = '/workspace', port = 5173 } = payload;
+    const container = containers.get(sessionId);
+
+    if (!container) {
+        session.ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Container not available'
+        }));
+        return;
+    }
+
+    // Check if package.json exists in container workspace
     try {
-        await fs.access(path.join(cwd, 'package.json'));
+        const packageJsonPath = path.join(session.workspacePath, 'package.json');
+        await fs.access(packageJsonPath);
     } catch (error) {
         session.ws.send(JSON.stringify({
             type: 'error',
-            message: 'No package.json found. Please initialize a Node.js project first.'
+            message: 'No package.json found. Please create a Node.js project first.'
         }));
         return;
     }
 
     // Install dependencies if node_modules doesn't exist
     try {
-        await fs.access(path.join(cwd, 'node_modules'));
+        const nodeModulesPath = path.join(session.workspacePath, 'node_modules');
+        await fs.access(nodeModulesPath);
     } catch (error) {
         session.ws.send(JSON.stringify({
             type: 'dev_server_status',
@@ -375,11 +539,8 @@ async function startDevServer(sessionId, payload) {
             message: 'Installing dependencies...'
         }));
 
-        await runCommand(sessionId, {
-            command: 'npm',
-            args: ['install'],
-            cwd
-        });
+        // Send npm install command to container
+        container.process.stdin.write('npm install\n');
     }
 
     // Start dev server
@@ -389,89 +550,213 @@ async function startDevServer(sessionId, payload) {
         message: 'Starting development server...'
     }));
 
-    await runCommand(sessionId, {
-        command: 'npm',
-        args: ['run', 'dev', '--', '--host', '0.0.0.0', '--port', port.toString()],
-        cwd,
-        env: { PORT: port.toString() }
-    });
+    // Send dev server command to container
+    const devCommand = `npm run dev -- --host 0.0.0.0 --port ${port}`;
+    container.process.stdin.write(devCommand + '\n');
 }
 
-async function stopProcess(sessionId, payload) {
+async function stopContainer(sessionId) {
+    const container = containers.get(sessionId);
     const session = sessions.get(sessionId);
-    const { processId } = payload;
-    const process = session.processes.get(processId);
 
-    if (process) {
+    if (container) {
         try {
-            process.proc.kill();
-            session.processes.delete(processId);
-            session.ws.send(JSON.stringify({
-                type: 'process_stopped',
-                processId
-            }));
+            // Kill the container using docker CLI
+            const killProcess = spawn('docker', ['kill', container.name]);
+
+            killProcess.on('exit', (code) => {
+                console.log(`Container ${container.name} killed with code: ${code}`);
+                containers.delete(sessionId);
+
+                if (session && session.ws) {
+                    session.ws.send(JSON.stringify({
+                        type: 'container_stopped',
+                        sessionId
+                    }));
+                }
+            });
+
         } catch (error) {
-            session.ws.send(JSON.stringify({
-                type: 'error',
-                message: `Failed to stop process: ${error.message}`
-            }));
+            console.error(`Failed to stop container ${sessionId}:`, error);
+            if (session && session.ws) {
+                session.ws.send(JSON.stringify({
+                    type: 'error',
+                    message: `Failed to stop container: ${error.message}`
+                }));
+            }
         }
     }
 }
 
 // Cleanup function
-function cleanupSession(sessionId) {
-    const session = sessions.get(sessionId);
-    if (!session) return;
+async function cleanupSession(sessionId) {
+    console.log(`Cleaning up session: ${sessionId}`);
 
-    // Kill all terminals
-    session.terminals.forEach(terminal => {
+    // Stop and remove container
+    const container = containers.get(sessionId);
+    if (container) {
         try {
-            terminal.pty.kill();
-        } catch (error) {
-            console.log('Error killing terminal:', error);
-        }
-    });
+            // Kill the container
+            const killProcess = spawn('docker', ['kill', container.name]);
 
-    // Kill all processes
-    session.processes.forEach(process => {
-        try {
-            process.proc.kill();
+            await new Promise((resolve) => {
+                killProcess.on('exit', resolve);
+            });
+
+            console.log(`Container ${container.name} killed`);
         } catch (error) {
-            console.log('Error killing process:', error);
+            console.error(`Error killing container ${container.name}:`, error);
         }
-    });
+
+        containers.delete(sessionId);
+    }
+
+    // Clear idle timeout
+    const timer = sessionTimers.get(sessionId);
+    if (timer) {
+        clearTimeout(timer);
+        sessionTimers.delete(sessionId);
+    }
 
     // Remove session
     sessions.delete(sessionId);
+
+    console.log(`Session ${sessionId} cleanup complete`);
 }
 
 // HTTP routes
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', sessions: sessions.size });
+app.get('/health', async (req, res) => {
+    try {
+        // Check Docker availability
+        const dockerCheck = spawn('docker', ['version']);
+        let dockerAvailable = false;
+
+        await new Promise((resolve) => {
+            dockerCheck.on('exit', (code) => {
+                dockerAvailable = code === 0;
+                resolve();
+            });
+            dockerCheck.on('error', () => resolve());
+        });
+
+        res.json({
+            status: 'ok',
+            sessions: sessions.size,
+            containers: containers.size,
+            docker: dockerAvailable,
+            uptime: process.uptime()
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
 });
 
 app.get('/session/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessions.get(sessionId);
+    const container = containers.get(sessionId);
 
     if (session) {
         res.json({
             sessionId,
-            terminals: Array.from(session.terminals.keys()),
-            processes: Array.from(session.processes.keys()),
-            connected: true
+            connected: true,
+            container: container ? {
+                name: container.name,
+                startedAt: container.startedAt
+            } : null,
+            workspacePath: session.workspacePath,
+            lastActivity: session.lastActivity,
+            connectedAt: session.connectedAt
         });
     } else {
         res.status(404).json({ error: 'Session not found' });
     }
 });
 
+// Initialize Docker network
+async function initializeDocker() {
+    try {
+        console.log('🔧 Initializing Docker environment...');
+
+        // Create Docker network if it doesn't exist
+        const networkCheck = spawn('docker', ['network', 'ls', '--format', '{{.Name}}']);
+
+        let networks = '';
+        networkCheck.stdout.on('data', (data) => {
+            networks += data.toString();
+        });
+
+        await new Promise((resolve) => {
+            networkCheck.on('exit', (code) => {
+                if (code === 0 && !networks.includes(CONFIG.DOCKER_NETWORK)) {
+                    console.log(`Creating Docker network: ${CONFIG.DOCKER_NETWORK}`);
+                    const createNetwork = spawn('docker', ['network', 'create', CONFIG.DOCKER_NETWORK]);
+                    createNetwork.on('exit', () => resolve());
+                } else {
+                    resolve();
+                }
+            });
+        });
+
+        // Ensure workspace base directory exists
+        try {
+            await fs.access(CONFIG.USER_WORKSPACE_BASE);
+        } catch (error) {
+            await fs.mkdir(CONFIG.USER_WORKSPACE_BASE, { recursive: true });
+            console.log(`Created workspace base directory: ${CONFIG.USER_WORKSPACE_BASE}`);
+        }
+
+        console.log('✅ Docker environment initialized');
+    } catch (error) {
+        console.error('❌ Failed to initialize Docker environment:', error);
+    }
+}
+
+// Graceful shutdown
+async function gracefulShutdown() {
+    console.log('🛑 Received shutdown signal, cleaning up...');
+
+    // Stop all containers
+    for (const [sessionId, container] of containers) {
+        try {
+            console.log(`Stopping container for session: ${sessionId}`);
+            spawn('docker', ['kill', container.name]);
+        } catch (error) {
+            console.error(`Error stopping container ${container.name}:`, error);
+        }
+    }
+
+    // Clear all timers
+    for (const timer of sessionTimers.values()) {
+        clearTimeout(timer);
+    }
+
+    // Close WebSocket server
+    wss.close(() => {
+        console.log('WebSocket server closed');
+        process.exit(0);
+    });
+}
+
 // Start server
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-    console.log(`🚀 Remote VM Bridge Server running on port ${PORT}`);
+
+// Handle shutdown signals
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+server.listen(PORT, async () => {
+    console.log(`🚀 Docker VM Bridge Server running on port ${PORT}`);
     console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}`);
+    console.log(`🐳 Docker Network: ${CONFIG.DOCKER_NETWORK}`);
+    console.log(`📁 Workspace Base: ${CONFIG.USER_WORKSPACE_BASE}`);
+    console.log(`⏱️  Session Timeout: ${CONFIG.SESSION_IDLE_TIMEOUT / 1000 / 60} minutes`);
+    console.log(`👥 Max Sessions: ${CONFIG.MAX_SESSIONS}`);
+
+    await initializeDocker();
 });
 
 module.exports = app;

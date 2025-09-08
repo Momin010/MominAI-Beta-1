@@ -157,18 +157,18 @@ class WebSocketClient {
         return this.isConnected;
     }
 
-    // Terminal operations
-    createTerminal(terminalId: string) {
+    // Container operations
+    sendContainerCommand(command: string) {
         this.sendMessage({
-            type: 'create_terminal',
-            payload: { terminalId }
+            type: 'container_command',
+            payload: { command }
         });
     }
 
-    sendTerminalInput(terminalId: string, input: string) {
+    stopContainer() {
         this.sendMessage({
-            type: 'terminal_input',
-            payload: { terminalId, input }
+            type: 'stop_container',
+            payload: {}
         });
     }
 
