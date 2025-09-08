@@ -66,7 +66,7 @@ export default defineConfig(({ mode }) => {
             'ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs'],
             'utils': ['lodash-es', 'date-fns', 'uuid', 'fuse.js'],
             'webcontainer': ['@webcontainer/api'],
-            'terminal': ['xterm', '@xterm/addon-fit', '@xterm/addon-web-links', '@xterm/addon-search']
+            'terminal': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links', '@xterm/addon-search']
           }
         }
       }
@@ -77,7 +77,7 @@ export default defineConfig(({ mode }) => {
         'react-dom',
         'monaco-editor',
         '@monaco-editor/react',
-        'xterm',
+        '@xterm/xterm',
         '@xterm/addon-fit',
         '@xterm/addon-web-links',
         '@xterm/addon-search',
