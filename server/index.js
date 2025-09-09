@@ -11,24 +11,47 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:12000', 'http://127.0.0.1:12000', 'http://localhost:5173'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
 app.use(express.json());
 
 // Configuration
 const CONFIG = {
-    USER_WORKSPACE_BASE: '/home/ide/users',
+    USER_WORKSPACE_BASE: process.platform === 'win32' ? './user-workspaces' : '/home/ide/users',
     CONTAINER_IMAGE: 'node:20-bullseye',
     CONTAINER_CPU_LIMIT: '0.5',
     CONTAINER_MEMORY_LIMIT: '512m',
     SESSION_IDLE_TIMEOUT: 30 * 60 * 1000, // 30 minutes
     MAX_SESSIONS: 50, // Limit concurrent sessions
-    DOCKER_NETWORK: 'ide-network'
+    DOCKER_NETWORK: 'ide-network',
+    USE_DOCKER: false // Set to true for production, false for local development
 };
 
 // In-memory storage for sessions and containers
 const sessions = new Map(); // sessionId -> session data
 const containers = new Map(); // sessionId -> container process
 const sessionTimers = new Map(); // sessionId -> idle timeout timer
+
+// Docker availability detection
+async function checkDockerAvailability() {
+    return new Promise((resolve) => {
+        const dockerCheck = spawn('docker', ['version'], { stdio: 'pipe' });
+        dockerCheck.on('exit', (code) => {
+            CONFIG.USE_DOCKER = code === 0;
+            console.log(`Docker ${CONFIG.USE_DOCKER ? 'available' : 'not available'}`);
+            resolve(CONFIG.USE_DOCKER);
+        });
+        dockerCheck.on('error', () => {
+            CONFIG.USE_DOCKER = false;
+            console.log('Docker not available - using local mode');
+            resolve(false);
+        });
+    });
+}
 
 // Ensure user workspace directory exists
 async function ensureWorkspaceDirectory(sessionId) {
@@ -73,8 +96,8 @@ wss.on('connection', async (ws, req) => {
         // Create workspace directory
         session.workspacePath = await ensureWorkspaceDirectory(sessionId);
 
-        // Start container for this session
-        await startContainerForSession(sessionId);
+        // Start process/container for this session
+        await startProcessForSession(sessionId);
     } else {
         // Update existing session with new WebSocket
         session.ws = ws;
@@ -105,80 +128,147 @@ wss.on('connection', async (ws, req) => {
     ws.send(JSON.stringify({
         type: 'connected',
         sessionId,
-        message: 'Connected to Docker VM Bridge',
-        workspacePath: session.workspacePath
+        message: `Connected to ${CONFIG.USE_DOCKER ? 'Docker VM Bridge' : 'Local Development Bridge'}`,
+        workspacePath: session.workspacePath,
+        mode: CONFIG.USE_DOCKER ? 'docker' : 'local'
     }));
 });
 
-// Docker container management
-async function startContainerForSession(sessionId) {
+// Process/container management (Docker or Local)
+async function startProcessForSession(sessionId) {
     const session = sessions.get(sessionId);
     if (!session) return;
 
-    const containerName = `ide_session_${sessionId}`;
     const workspacePath = session.workspacePath;
 
-    console.log(`Starting Docker container for session: ${sessionId}`);
+    console.log(`${CONFIG.USE_DOCKER ? 'Starting Docker container' : 'Starting local process'} for session: ${sessionId}`);
 
     try {
-        // Check if container already exists
-        const existingContainer = containers.get(sessionId);
-        if (existingContainer) {
-            console.log(`Container already exists for session: ${sessionId}`);
+        // Check if process already exists
+        const existingProcess = containers.get(sessionId);
+        if (existingProcess) {
+            console.log(`Process already exists for session: ${sessionId}`);
             return;
         }
 
-        // Start new Docker container
-        const containerProcess = spawn('docker', [
-            'run',
-            '--rm',
-            '-i',
-            '--name', containerName,
-            '-v', `${workspacePath}:/workspace`,
-            '--cpus', CONFIG.CONTAINER_CPU_LIMIT,
-            '--memory', CONFIG.CONTAINER_MEMORY_LIMIT,
-            '--network', CONFIG.DOCKER_NETWORK,
-            '--workdir', '/workspace',
-            '-e', 'PS1=$ ',
-            CONFIG.CONTAINER_IMAGE,
-            'bash'
-        ], {
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
+        let processInstance;
 
-        // Store container reference
+        if (CONFIG.USE_DOCKER) {
+            // Docker mode
+            const containerName = `ide_session_${sessionId}`;
+            processInstance = spawn('docker', [
+                'run',
+                '--rm',
+                '-i',
+                '--name', containerName,
+                '-v', `${workspacePath}:/workspace`,
+                '--cpus', CONFIG.CONTAINER_CPU_LIMIT,
+                '--memory', CONFIG.CONTAINER_MEMORY_LIMIT,
+                '--network', CONFIG.DOCKER_NETWORK,
+                '--workdir', '/workspace',
+                '-e', 'PS1=$ ',
+                CONFIG.CONTAINER_IMAGE,
+                'bash'
+            ], {
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+        } else {
+            // Local mode (fallback)
+            console.log(`Starting local process for session: ${sessionId}`);
+            console.log(`Workspace path: ${workspacePath}`);
+            console.log(`Platform: ${process.platform}`);
+
+            let shell, shellArgs;
+
+            if (process.platform === 'win32') {
+                // Use cmd.exe as primary shell on Windows (without /c so it stays open)
+                shell = 'cmd.exe';
+                shellArgs = [];
+                console.log(`Using cmd.exe on Windows (interactive mode)`);
+            } else {
+                shell = 'bash';
+                shellArgs = [];
+                console.log(`Using bash on Unix-like system`);
+            }
+
+            console.log(`Using shell: ${shell} with args: ${JSON.stringify(shellArgs)}`);
+
+            try {
+                // Ensure npm is available in PATH
+                const nodeBinPath = path.join(process.cwd(), 'node-v22.18.0-win-x64');
+                const updatedEnv = {
+                    ...process.env,
+                    PATH: `${nodeBinPath};${process.env.PATH}`,
+                    PS1: '$ '
+                };
+    
+                processInstance = spawn(shell, shellArgs, {
+                    cwd: workspacePath,
+                    env: updatedEnv,
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+
+                console.log(`Process spawned with PID: ${processInstance.pid}`);
+            } catch (spawnError) {
+                console.error(`Failed to spawn ${shell}:`, spawnError);
+
+                // Final fallback: try cmd.exe directly
+                if (process.platform === 'win32') {
+                    console.log(`Trying cmd.exe as final fallback...`);
+                    processInstance = spawn('cmd.exe', [], {
+                        cwd: workspacePath,
+                        env: { ...process.env },
+                        stdio: ['pipe', 'pipe', 'pipe']
+                    });
+                    console.log(`cmd.exe process spawned with PID: ${processInstance.pid}`);
+                } else {
+                    throw spawnError;
+                }
+            }
+        }
+
+        // Store process reference
         containers.set(sessionId, {
-            process: containerProcess,
-            name: containerName,
+            process: processInstance,
+            name: CONFIG.USE_DOCKER ? `ide_session_${sessionId}` : `local_process_${sessionId}`,
             startedAt: Date.now()
         });
 
-        // Handle container output
-        containerProcess.stdout.on('data', (data) => {
+        // Handle process output
+        processInstance.stdout.on('data', (data) => {
+            const output = data.toString();
+            console.log(`📝 STDOUT from ${containers.get(sessionId)?.name}:`, output);
             const session = sessions.get(sessionId);
             if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
                 session.ws.send(JSON.stringify({
                     type: 'container_output',
                     sessionId,
-                    data: data.toString()
+                    data: output
                 }));
             }
         });
 
-        containerProcess.stderr.on('data', (data) => {
+        processInstance.stderr.on('data', (data) => {
+            const output = data.toString();
+            console.log(`📝 STDERR from ${containers.get(sessionId)?.name}:`, output);
             const session = sessions.get(sessionId);
             if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
                 session.ws.send(JSON.stringify({
                     type: 'container_output',
                     sessionId,
-                    data: data.toString()
+                    data: output
                 }));
             }
         });
 
-        containerProcess.on('exit', (code) => {
-            console.log(`Container ${containerName} exited with code: ${code}`);
-            containers.delete(sessionId);
+        processInstance.on('exit', (code) => {
+            console.log(`${CONFIG.USE_DOCKER ? 'Container' : 'Process'} ${containers.get(sessionId)?.name} exited with code: ${code}`);
+
+            // Don't delete the container immediately - keep it for potential restart
+            // Only delete if it's a clean exit (code 0) or error exit
+            if (code !== 0) {
+                console.log(`Process exited with error code ${code}, keeping container for potential restart`);
+            }
 
             const session = sessions.get(sessionId);
             if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
@@ -187,26 +277,43 @@ async function startContainerForSession(sessionId) {
                     sessionId,
                     code
                 }));
+
+                // If process exited with error, try to restart it
+                if (code !== 0) {
+                    console.log(`Attempting to restart process for session: ${sessionId}`);
+                    setTimeout(() => {
+                        startProcessForSession(sessionId);
+                    }, 1000); // Wait 1 second before restart
+                }
             }
         });
 
-        containerProcess.on('error', (error) => {
-            console.error(`Container ${containerName} error:`, error);
+        processInstance.on('error', (error) => {
+            console.error(`${CONFIG.USE_DOCKER ? 'Container' : 'Process'} error:`, error);
             containers.delete(sessionId);
+
+            // Send error to client
+            const session = sessions.get(sessionId);
+            if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
+                session.ws.send(JSON.stringify({
+                    type: 'error',
+                    message: `Failed to start ${CONFIG.USE_DOCKER ? 'container' : 'process'}: ${error.message}`
+                }));
+            }
         });
 
         // Set up idle timeout
         setupIdleTimeout(sessionId);
 
-        console.log(`Docker container started: ${containerName}`);
+        console.log(`${CONFIG.USE_DOCKER ? 'Docker container' : 'Local process'} started: ${containers.get(sessionId)?.name}`);
 
     } catch (error) {
-        console.error(`Failed to start container for session ${sessionId}:`, error);
+        console.error(`Failed to start ${CONFIG.USE_DOCKER ? 'container' : 'process'} for session ${sessionId}:`, error);
         const session = sessions.get(sessionId);
         if (session && session.ws) {
             session.ws.send(JSON.stringify({
                 type: 'error',
-                message: `Failed to start container: ${error.message}`
+                message: `Failed to start ${CONFIG.USE_DOCKER ? 'container' : 'process'}: ${error.message}`
             }));
         }
     }
@@ -231,13 +338,19 @@ function setupIdleTimeout(sessionId) {
 
 // Message handler
 async function handleMessage(sessionId, data) {
+    console.log(`📨 Received WebSocket message for session ${sessionId}:`, data);
     const session = sessions.get(sessionId);
-    if (!session) return;
+    if (!session) {
+        console.error(`❌ Session ${sessionId} not found`);
+        return;
+    }
 
     const { type, payload } = data;
+    console.log(`🔄 Processing message type: ${type}`);
 
     switch (type) {
         case 'container_command':
+            console.log(`🚀 Handling container command`);
             await handleContainerCommand(sessionId, payload);
             break;
 
@@ -270,16 +383,18 @@ async function handleMessage(sessionId, data) {
             break;
 
         default:
-            console.log(`Unknown message type: ${type}`);
+            console.log(`❓ Unknown message type: ${type}`);
     }
 }
 
 // Container command handling
 async function handleContainerCommand(sessionId, payload) {
+    console.log(`🔧 Received container command for session ${sessionId}:`, payload);
     const { command } = payload;
     const container = containers.get(sessionId);
 
     if (!container) {
+        console.error(`❌ Container not found for session ${sessionId}`);
         const session = sessions.get(sessionId);
         if (session && session.ws) {
             session.ws.send(JSON.stringify({
@@ -291,10 +406,12 @@ async function handleContainerCommand(sessionId, payload) {
     }
 
     try {
+        console.log(`📤 Sending command to container: ${command}`);
         // Send command to container
         container.process.stdin.write(command + '\n');
+        console.log(`✅ Command sent successfully`);
     } catch (error) {
-        console.error(`Failed to send command to container ${sessionId}:`, error);
+        console.error(`❌ Failed to send command to container ${sessionId}:`, error);
         const session = sessions.get(sessionId);
         if (session && session.ws) {
             session.ws.send(JSON.stringify({
@@ -556,16 +673,30 @@ async function startDevServer(sessionId, payload) {
 }
 
 async function stopContainer(sessionId) {
-    const container = containers.get(sessionId);
+    const processInfo = containers.get(sessionId);
     const session = sessions.get(sessionId);
 
-    if (container) {
+    if (processInfo) {
         try {
-            // Kill the container using docker CLI
-            const killProcess = spawn('docker', ['kill', container.name]);
+            if (CONFIG.USE_DOCKER) {
+                // Kill Docker container
+                const killProcess = spawn('docker', ['kill', processInfo.name]);
 
-            killProcess.on('exit', (code) => {
-                console.log(`Container ${container.name} killed with code: ${code}`);
+                killProcess.on('exit', (code) => {
+                    console.log(`Container ${processInfo.name} killed with code: ${code}`);
+                    containers.delete(sessionId);
+
+                    if (session && session.ws) {
+                        session.ws.send(JSON.stringify({
+                            type: 'container_stopped',
+                            sessionId
+                        }));
+                    }
+                });
+            } else {
+                // Kill local process
+                processInfo.process.kill();
+                console.log(`Local process ${processInfo.name} killed`);
                 containers.delete(sessionId);
 
                 if (session && session.ws) {
@@ -574,14 +705,14 @@ async function stopContainer(sessionId) {
                         sessionId
                     }));
                 }
-            });
+            }
 
         } catch (error) {
-            console.error(`Failed to stop container ${sessionId}:`, error);
+            console.error(`Failed to stop ${CONFIG.USE_DOCKER ? 'container' : 'process'} ${sessionId}:`, error);
             if (session && session.ws) {
                 session.ws.send(JSON.stringify({
                     type: 'error',
-                    message: `Failed to stop container: ${error.message}`
+                    message: `Failed to stop ${CONFIG.USE_DOCKER ? 'container' : 'process'}: ${error.message}`
                 }));
             }
         }
@@ -592,20 +723,28 @@ async function stopContainer(sessionId) {
 async function cleanupSession(sessionId) {
     console.log(`Cleaning up session: ${sessionId}`);
 
-    // Stop and remove container
-    const container = containers.get(sessionId);
-    if (container) {
+    // Stop and remove process/container
+    const processInfo = containers.get(sessionId);
+    if (processInfo) {
         try {
-            // Kill the container
-            const killProcess = spawn('docker', ['kill', container.name]);
+            if (CONFIG.USE_DOCKER) {
+                // Kill Docker container
+                const killProcess = spawn('docker', ['kill', processInfo.name]);
 
-            await new Promise((resolve) => {
-                killProcess.on('exit', resolve);
-            });
+                await new Promise((resolve) => {
+                    killProcess.on('exit', (code) => {
+                        console.log(`Container ${processInfo.name} killed with code: ${code}`);
+                        resolve();
+                    });
+                });
+            } else {
+                // Kill local process
+                processInfo.process.kill();
+                console.log(`Local process ${processInfo.name} killed`);
+            }
 
-            console.log(`Container ${container.name} killed`);
         } catch (error) {
-            console.error(`Error killing container ${container.name}:`, error);
+            console.error(`Error killing ${CONFIG.USE_DOCKER ? 'container' : 'process'} ${processInfo.name}:`, error);
         }
 
         containers.delete(sessionId);
@@ -627,23 +766,12 @@ async function cleanupSession(sessionId) {
 // HTTP routes
 app.get('/health', async (req, res) => {
     try {
-        // Check Docker availability
-        const dockerCheck = spawn('docker', ['version']);
-        let dockerAvailable = false;
-
-        await new Promise((resolve) => {
-            dockerCheck.on('exit', (code) => {
-                dockerAvailable = code === 0;
-                resolve();
-            });
-            dockerCheck.on('error', () => resolve());
-        });
-
         res.json({
             status: 'ok',
             sessions: sessions.size,
             containers: containers.size,
-            docker: dockerAvailable,
+            docker: CONFIG.USE_DOCKER,
+            mode: CONFIG.USE_DOCKER ? 'docker' : 'local',
             uptime: process.uptime()
         });
     } catch (error) {
@@ -719,13 +847,18 @@ async function initializeDocker() {
 async function gracefulShutdown() {
     console.log('🛑 Received shutdown signal, cleaning up...');
 
-    // Stop all containers
-    for (const [sessionId, container] of containers) {
+    // Stop all processes/containers
+    for (const [sessionId, processInfo] of containers) {
         try {
-            console.log(`Stopping container for session: ${sessionId}`);
-            spawn('docker', ['kill', container.name]);
+            if (CONFIG.USE_DOCKER) {
+                console.log(`Stopping container for session: ${sessionId}`);
+                spawn('docker', ['kill', processInfo.name]);
+            } else {
+                console.log(`Stopping local process for session: ${sessionId}`);
+                processInfo.process.kill();
+            }
         } catch (error) {
-            console.error(`Error stopping container ${container.name}:`, error);
+            console.error(`Error stopping ${CONFIG.USE_DOCKER ? 'container' : 'process'} ${processInfo.name}:`, error);
         }
     }
 
@@ -749,14 +882,30 @@ process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
 server.listen(PORT, async () => {
-    console.log(`🚀 Docker VM Bridge Server running on port ${PORT}`);
+    // Check Docker availability
+    await checkDockerAvailability();
+
+    console.log(`🚀 ${CONFIG.USE_DOCKER ? 'Docker VM Bridge' : 'Local Development'} Server running on port ${PORT}`);
     console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}`);
-    console.log(`🐳 Docker Network: ${CONFIG.DOCKER_NETWORK}`);
+    console.log(`🔧 Mode: ${CONFIG.USE_DOCKER ? 'Docker (Production)' : 'Local (Development)'}`);
+
+    if (CONFIG.USE_DOCKER) {
+        console.log(`🐳 Docker Network: ${CONFIG.DOCKER_NETWORK}`);
+        await initializeDocker();
+    } else {
+        console.log(`💻 Local Mode: Using system processes`);
+        // Ensure workspace directory exists for local mode
+        try {
+            await fs.access(CONFIG.USER_WORKSPACE_BASE);
+        } catch (error) {
+            await fs.mkdir(CONFIG.USER_WORKSPACE_BASE, { recursive: true });
+            console.log(`Created workspace base directory: ${CONFIG.USER_WORKSPACE_BASE}`);
+        }
+    }
+
     console.log(`📁 Workspace Base: ${CONFIG.USER_WORKSPACE_BASE}`);
     console.log(`⏱️  Session Timeout: ${CONFIG.SESSION_IDLE_TIMEOUT / 1000 / 60} minutes`);
     console.log(`👥 Max Sessions: ${CONFIG.MAX_SESSIONS}`);
-
-    await initializeDocker();
 });
 
 module.exports = app;

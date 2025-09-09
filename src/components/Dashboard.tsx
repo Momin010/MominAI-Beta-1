@@ -105,7 +105,9 @@ const UserProfileDropdown: React.FC<{onLogout: () => void}> = ({ onLogout }) => 
     return (
         <div className="relative" ref={dropdownRef}>
             <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 p-1 rounded-full hover:bg-white-10 transition-colors bg-transparent border-none">
-                <img src="/avatar.jpg" alt="User Avatar" className="w-8 h-8 rounded-full"/>
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm">
+                    M
+                </div>
             </button>
             {isOpen && (
                 <div className="absolute right-0 mt-2 w-48 glass-strong shadow-2xl py-2 rounded-xl" style={{animation: 'scaleIn 0.1s ease-out'}}>
@@ -207,7 +209,9 @@ const ProfileSettings = () => (
         <h3 className="text-xl font-bold mb-6">Public Profile</h3>
         <form className="flex flex-col gap-6 max-w-lg">
              <div className="flex items-center gap-4">
-                 <img src="/avatar.jpg" alt="User Avatar" className="w-16 h-16 rounded-full"/>
+                 <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
+                     M
+                 </div>
                  <button className="glass-button border border-white/30 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-white/20">Upload new picture</button>
              </div>
              <div className="grid grid-cols-2 gap-4">

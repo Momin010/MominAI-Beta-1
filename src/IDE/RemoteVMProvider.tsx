@@ -81,8 +81,8 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
         console.log('Connected to Remote VM:', data.sessionId);
         setIsConnected(true);
         setError(null);
-        // Set up a demo server URL for development
-        setServerUrl('http://localhost:5173');
+        // Set up the correct backend server URL
+        setServerUrl('http://localhost:3001');
     }, []);
 
     // Set up message handlers
@@ -104,12 +104,35 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
         };
     }, [wsClient, handleTerminalOutput, handleProcessOutput, handleFileContent, handleDirectoryListing, handleError, handleConnected]);
 
+    // Auto-connect on mount
+    useEffect(() => {
+        const autoConnect = async () => {
+            try {
+                await connect();
+            } catch (error) {
+                console.error('Auto-connect failed:', error);
+                // Set a fallback state so the app doesn't get stuck in loading
+                setError('Failed to connect to backend server. Please check if the server is running on port 3001.');
+                setIsConnected(false);
+                setServerUrl(null);
+            }
+        };
+
+        // Add a small delay to ensure backend is ready
+        const timer = setTimeout(autoConnect, 1000);
+
+        return () => clearTimeout(timer);
+    }, []); // Remove connect from dependencies to avoid hoisting issues
+
     const connect = useCallback(async () => {
         try {
             setError(null);
+            console.log('🔌 Attempting to connect to Remote VM...');
             await wsClient.connect();
+            console.log('✅ Successfully connected to Remote VM');
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to connect to Remote VM';
+            console.error('❌ Remote VM connection failed:', errorMessage);
             setError(errorMessage);
             throw error;
         }

@@ -32,6 +32,7 @@ import CommandPalette from './components/CommandPalette.tsx';
 import AiDiffViewModal from './components/AiDiffViewModal.tsx';
 import AiFileGeneratorModal from './components/AiFileGeneratorModal.tsx';
 import AIAssistant from './components/AIAssistant.tsx';
+import LivePreview from './components/LivePreview.tsx';
 
 // Panel Components
 import SearchPanel from './components/SearchPanel.tsx';
@@ -320,11 +321,33 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
 
     if (error) {
         const isCrossOriginError = error.includes('cross-origin') || error.includes('SharedArrayBuffer') || error.includes('COEP') || error.includes('COOP');
+        const isConnectionError = error.includes('connect') || error.includes('backend') || error.includes('server');
 
         return (
             <div className="w-screen h-screen flex flex-col items-center justify-center bg-red-900/50 text-white p-4">
-                <h2 className="text-2xl font-bold mb-4">Environment Setup Required</h2>
-                {isCrossOriginError ? (
+                <h2 className="text-2xl font-bold mb-4">
+                    {isConnectionError ? 'Backend Connection Failed' : 'Environment Setup Required'}
+                </h2>
+                {isConnectionError ? (
+                    <div className="text-center mb-4 max-w-2xl">
+                        <p className="mb-4">Could not connect to the backend server. Please ensure:</p>
+                        <ul className="text-left list-disc list-inside space-y-2 bg-black/30 p-4 rounded-lg">
+                            <li>The backend server is running on port 3001</li>
+                            <li>You can access http://localhost:3001/health</li>
+                            <li>No firewall is blocking the connection</li>
+                            <li>The backend process hasn't crashed</li>
+                        </ul>
+                        <p className="mt-4 text-sm text-gray-300">
+                            Check the backend terminal for error messages and restart if needed.
+                        </p>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="mt-4 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold"
+                        >
+                            Retry Connection
+                        </button>
+                    </div>
+                ) : isCrossOriginError ? (
                     <div className="text-center mb-4 max-w-2xl">
                         <p className="mb-4">This IDE requires cross-origin isolation to run securely. Please ensure:</p>
                         <ul className="text-left list-disc list-inside space-y-2 bg-black/30 p-4 rounded-lg">
@@ -442,13 +465,10 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                             {/* Editor/Preview Area */}
                             <div className="flex-grow flex flex-col">
                                 {showPreview ? (
-                                    <PreviewContainer
-                                        isVisible={true} title="Live Preview" onClose={() => setShowPreview(false)}
-                                        previewContext={null} iframeRef={previewIframeRef}
-                                        onToggleInspector={()=>{}} isInspectorActive={false}
-                                    >
-                                       <iframe key={previewKey} src={serverUrl || ''} className="w-full h-full rounded-b-lg border-none bg-white" />
-                                    </PreviewContainer>
+                                    <LivePreview
+                                        isVisible={true}
+                                        onToggle={() => setShowPreview(false)}
+                                    />
                                 ) : (
                                     <EditorPane
                                         openFiles={openFiles}

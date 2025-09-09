@@ -45,12 +45,13 @@ class WebSocketClient {
     connect(): Promise<void> {
         return new Promise((resolve, reject) => {
             const wsUrl = `ws://localhost:3001/session/${this.sessionId}`;
+            console.log('🔌 Connecting to WebSocket:', wsUrl);
 
             try {
                 this.ws = new WebSocket(wsUrl);
 
                 this.ws.onopen = () => {
-                    console.log('WebSocket connected to Remote VM Bridge');
+                    console.log('✅ WebSocket connected to Remote VM Bridge');
                     this.isConnected = true;
                     this.reconnectAttempts = 0;
                     resolve();
@@ -59,24 +60,34 @@ class WebSocketClient {
                 this.ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
+                        console.log('📨 WebSocket message received:', data.type, data);
                         this.handleMessage(data);
                     } catch (error) {
-                        console.error('Error parsing WebSocket message:', error);
+                        console.error('❌ Error parsing WebSocket message:', error);
                     }
                 };
 
-                this.ws.onclose = () => {
-                    console.log('WebSocket connection closed');
+                this.ws.onclose = (event) => {
+                    console.log('🔌 WebSocket connection closed:', event.code, event.reason);
                     this.isConnected = false;
                     this.attemptReconnect();
                 };
 
                 this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                    console.error('❌ WebSocket error:', error);
                     reject(error);
                 };
 
+                // Add timeout for connection
+                setTimeout(() => {
+                    if (!this.isConnected) {
+                        console.error('⏰ WebSocket connection timeout');
+                        reject(new Error('WebSocket connection timeout'));
+                    }
+                }, 5000);
+
             } catch (error) {
+                console.error('❌ WebSocket creation error:', error);
                 reject(error);
             }
         });

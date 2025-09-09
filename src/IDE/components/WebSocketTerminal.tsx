@@ -68,6 +68,9 @@ export const WebSocketTerminal: React.FC<WebSocketTerminalProps> = ({
     const executeCommand = useCallback((command: string) => {
         if (!command.trim()) return;
 
+        console.log('🔧 Executing command:', command);
+        console.log('🔌 WebSocket connected:', wsClient.isWebSocketConnected());
+
         // Add command to history
         setCommandHistory(prev => [...prev, command]);
         setHistoryIndex(-1);
@@ -76,7 +79,13 @@ export const WebSocketTerminal: React.FC<WebSocketTerminalProps> = ({
         setTerminalOutput(prev => [...prev, `$ ${command}`]);
 
         // Execute command via WebSocket to container
-        wsClient.sendContainerCommand(command);
+        try {
+            wsClient.sendContainerCommand(command);
+            console.log('📤 Command sent to WebSocket');
+        } catch (error) {
+            console.error('❌ Failed to send command:', error);
+            setTerminalOutput(prev => [...prev, `Error: Failed to send command - ${error}`]);
+        }
 
         // Clear input
         setCurrentInput('');
