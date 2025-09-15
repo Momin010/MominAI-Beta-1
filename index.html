@@ -11,21 +11,21 @@
         <style>
         :root {
             /* Theme variables */
-            --background: white;
-            --background-secondary: #2a2a3e;
-            --border-color: rgba(255, 255, 255, 0.15); /* Slimmer, grey-toned borders */
+            --background: #000000;
+            --background-secondary: #1a1a1a;
+            --border-color: rgba(255, 255, 255, 0.1); /* Slimmer, grey-toned borders */
             --gray: #8B949E;
-            --foreground: #F0F2F5;
+            --foreground: #FFFFFF;
             --accent: #a970e8; /* Updated accent */
             --accent-glow: rgba(169, 112, 232, 0.5);
             --accent-text: #FFFFFF;
 
             /* IDE-specific variables */
-            --ui-panel-bg: rgba(42, 42, 62, 0.8);
-            --ui-panel-bg-heavy: #2a2a3e;
-            --ui-border: rgba(255, 255, 255, 0.12); /* More subtle borders */
+            --ui-panel-bg: rgba(0, 0, 0, 0.3);
+            --ui-panel-bg-heavy: #1a1a1a;
+            --ui-border: rgba(255, 255, 255, 0.1); /* More subtle borders */
             --gray-light: #6a6a6a;
-            --gray-dark: #3a3a3a;
+            --gray-dark: #2a2a2a;
             --ui-border-radius: 0.5rem;
         }
 
@@ -153,13 +153,16 @@
 <body>
     <div id="root"></div>
 
-    <!-- Background Image Debug Script -->
+    <!-- Background Script -->
     <script>
-        // Set a beautiful gradient background
-        document.body.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+        // Set black background
+        document.body.style.background = '#000000';
         document.body.style.backgroundAttachment = 'fixed';
-        console.log('✅ Beautiful gradient background applied');
+        console.log('✅ Black background applied');
     </script>
+
+    <!-- Monaco AMD Loader for Monaco Workers -->
+    <script src="/monaco-editor/vs/loader.js"></script>
 
     <script type="module" src="/src/index.tsx" defer></script>
 </body>

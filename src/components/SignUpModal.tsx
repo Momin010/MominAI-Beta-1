@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useSubscription } from '../contexts/SubscriptionContext';
 
 declare const window: any;
 
@@ -10,7 +11,43 @@ interface SignUpModalProps {
 }
 
 const SignUpModal = ({ isOpen, onClose, onSuccess }: SignUpModalProps) => {
-    
+    const { activatePremium, activationCode, setActivationCode, isLaunched, hasSignedUp, setHasSignedUp } = useSubscription();
+    const [email, setEmail] = React.useState('');
+    const [password, setPassword] = React.useState('');
+    const [errors, setErrors] = React.useState<{email?: string; password?: string; activationCode?: string}>({});
+
+    // Validation functions
+    const validateEmail = (email: string): string | null => {
+        if (!email.trim()) return 'Email is required';
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) return 'Please enter a valid email address';
+        if (email.length > 254) return 'Email address is too long';
+        return null;
+    };
+
+    const validatePassword = (password: string): string | null => {
+        if (!password) return 'Password is required';
+        if (password.length < 8) return 'Password must be at least 8 characters long';
+        if (password.length > 128) return 'Password must be less than 128 characters';
+        const hasUpperCase = /[A-Z]/.test(password);
+        const hasLowerCase = /[a-z]/.test(password);
+        const hasNumbers = /\d/.test(password);
+        if (!hasUpperCase || !hasLowerCase || !hasNumbers) {
+            return 'Password must contain at least one uppercase letter, one lowercase letter, and one number';
+        }
+        return null;
+    };
+
+    const validateActivationCode = (code: string): string | null => {
+        if (!code.trim()) return null; // Optional field
+        if (code.length < 5) return 'Activation code must be at least 5 characters long';
+        return null;
+    };
+
+    const sanitizeInput = (input: string): string => {
+        return input.trim().replace(/[<>'"&]/g, '');
+    };
+
     useEffect(() => {
         const handleEsc = (event: KeyboardEvent) => {
             if (event.key === 'Escape') onClose();
@@ -28,6 +65,15 @@ const SignUpModal = ({ isOpen, onClose, onSuccess }: SignUpModalProps) => {
             callback: (response: any) => {
                 console.log("Google Sign-In successful, token:", response.credential);
                 // In a real app, you would send this token to your backend for verification
+
+                // Handle launch gating
+                if (!isLaunched) {
+                    setHasSignedUp(true);
+                    alert('Thank you for signing up! We are launching soon. You will be notified when we go live.');
+                    onClose();
+                    return;
+                }
+
                 onSuccess();
             }
         });
@@ -44,8 +90,55 @@ const SignUpModal = ({ isOpen, onClose, onSuccess }: SignUpModalProps) => {
 
     if (!isOpen) return null;
 
-    const handleSubmit = (event: React.FormEvent) => {
+    const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
+
+        const sanitizedEmail = sanitizeInput(email);
+        const sanitizedPassword = sanitizeInput(password);
+        const sanitizedActivationCode = sanitizeInput(activationCode);
+
+        const emailError = validateEmail(sanitizedEmail);
+        const passwordError = validatePassword(sanitizedPassword);
+        const activationCodeError = validateActivationCode(sanitizedActivationCode);
+
+        if (emailError || passwordError || activationCodeError) {
+            setErrors({
+                email: emailError || undefined,
+                password: passwordError || undefined,
+                activationCode: activationCodeError || undefined
+            });
+            return;
+        }
+
+        setErrors({});
+
+        // Try to activate premium if activation code is provided
+        if (sanitizedActivationCode) {
+            const premiumActivated = await activatePremium(sanitizedActivationCode);
+            if (!premiumActivated) {
+                setErrors({
+                    activationCode: 'Invalid activation code'
+                });
+                return;
+            }
+        }
+
+        // Here you would typically send the sanitized data to your backend
+        console.log('Form submitted with:', {
+            email: sanitizedEmail,
+            password: sanitizedPassword,
+            premiumActivated: !!sanitizedActivationCode
+        });
+
+        // Handle launch gating
+        if (!isLaunched) {
+            setHasSignedUp(true);
+            // Show launch message instead of proceeding
+            alert('Thank you for signing up! We are launching soon. You will be notified when we go live.');
+            onClose();
+            return;
+        }
+
         onSuccess();
     };
 
@@ -78,8 +171,42 @@ const SignUpModal = ({ isOpen, onClose, onSuccess }: SignUpModalProps) => {
                 </div>
 
                 <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-                    <input className="p-3 rounded-lg border border-[var(--border-color)] bg-[var(--background-secondary)] text-[var(--foreground)] text-sm placeholder:text-gray-500 focus:ring-2 focus:ring-[var(--accent)] focus:border-[var(--accent)] outline-none" type="email" placeholder="Email Address" required aria-label="Email Address" />
-                    <input className="p-3 rounded-lg border border-[var(--border-color)] bg-[var(--background-secondary)] text-[var(--foreground)] text-sm placeholder:text-gray-500 focus:ring-2 focus:ring-[var(--accent)] focus:border-[var(--accent)] outline-none" type="password" placeholder="Password" required aria-label="Password"/>
+                    <div>
+                        <input
+                            className={`p-3 rounded-lg border bg-[var(--background-secondary)] text-[var(--foreground)] text-sm placeholder:text-gray-500 focus:ring-2 focus:ring-[var(--accent)] outline-none w-full ${errors.email ? 'border-red-500' : 'border-[var(--border-color)] focus:border-[var(--accent)]'}`}
+                            type="email"
+                            placeholder="Email Address"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                            aria-label="Email Address"
+                        />
+                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+                    </div>
+                    <div>
+                        <input
+                            className={`p-3 rounded-lg border bg-[var(--background-secondary)] text-[var(--foreground)] text-sm placeholder:text-gray-500 focus:ring-2 focus:ring-[var(--accent)] outline-none w-full ${errors.password ? 'border-red-500' : 'border-[var(--border-color)] focus:border-[var(--accent)]'}`}
+                            type="password"
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            aria-label="Password"
+                        />
+                        {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+                    </div>
+                    <div>
+                        <input
+                            className={`p-3 rounded-lg border bg-[var(--background-secondary)] text-[var(--foreground)] text-sm placeholder:text-gray-500 focus:ring-2 focus:ring-[var(--accent)] outline-none w-full ${errors.activationCode ? 'border-red-500' : 'border-[var(--border-color)] focus:border-[var(--accent)]'}`}
+                            type="text"
+                            placeholder="Activation Code (Optional - for Premium)"
+                            value={activationCode}
+                            onChange={(e) => setActivationCode(e.target.value)}
+                            aria-label="Activation Code"
+                        />
+                        {errors.activationCode && <p className="text-red-500 text-xs mt-1">{errors.activationCode}</p>}
+                        <p className="text-gray-400 text-xs mt-1">Enter activation code to unlock premium features</p>
+                    </div>
                     <button type="submit" className="p-3 rounded-lg font-semibold text-sm transition-all duration-200 bg-transparent border border-[var(--accent)] text-[var(--accent)] mt-2 hover:bg-[var(--accent)] hover:text-white">
                         Continue with Email
                     </button>

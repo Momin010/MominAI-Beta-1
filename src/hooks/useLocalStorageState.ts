@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback, Dispatch, SetStateAction } from 'react';
+import { encryptionService } from '../IDE/services/encryptionService';
 
-// A custom hook to synchronize state with localStorage.
+// Initialize encryption service
+encryptionService.initialize().catch(error => {
+    console.error('Failed to initialize encryption service:', error);
+});
+
+// A custom hook to synchronize state with localStorage with encryption support.
 export const useLocalStorageState = <T,>(
     key: string, // The key to use in localStorage.
-    initialValue: T // The initial value if nothing is in localStorage.
+    initialValue: T, // The initial value if nothing is in localStorage.
+    encrypt: boolean = false // Whether to encrypt the stored data.
 ): [T, Dispatch<SetStateAction<T>>, () => void] => {
     // 1. Initialize state from localStorage or the initial value.
     const [storedValue, setStoredValue] = useState<T>(() => {
@@ -14,30 +21,52 @@ export const useLocalStorageState = <T,>(
         }
         try {
             const item = window.localStorage.getItem(key);
-            // Parse stored json or if none, return initialValue.
-            return item ? JSON.parse(item) : initialValue;
+            if (!item) return initialValue;
+
+            // Check if data is encrypted
+            if (encrypt && encryptionService.isEncrypted(item)) {
+                // Decrypt the data
+                const decrypted = encryptionService.decryptFromStorage(item);
+                return decrypted;
+            } else {
+                // Parse stored json or if none, return initialValue.
+                return JSON.parse(item);
+            }
         } catch (error) {
-            // If parsing fails, log the error and return the initial value.
-            console.error(`Error reading localStorage key “${key}”:`, error);
+            // If parsing/decryption fails, log the error and return the initial value.
+            console.error(`Error reading localStorage key "${key}":`, error);
             return initialValue;
         }
     });
 
     // 2. Use useEffect to update localStorage when the state changes.
     useEffect(() => {
-        // This effect runs whenever 'key' or 'storedValue' changes.
+        // This effect runs whenever 'key', 'storedValue', or 'encrypt' changes.
         if (typeof window === 'undefined') {
             return;
         }
-        try {
-            // Stringify the value and save it to localStorage.
-            const valueToStore = JSON.stringify(storedValue);
-            window.localStorage.setItem(key, valueToStore);
-        } catch (error) {
-            // If stringifying or saving fails, log the error.
-            console.error(`Error setting localStorage key “${key}”:`, error);
-        }
-    }, [key, storedValue]);
+
+        const storeValue = async () => {
+            try {
+                let valueToStore: string;
+
+                if (encrypt) {
+                    // Encrypt the data before storing
+                    valueToStore = await encryptionService.encryptForStorage(storedValue);
+                } else {
+                    // Stringify the value and save it to localStorage.
+                    valueToStore = JSON.stringify(storedValue);
+                }
+
+                window.localStorage.setItem(key, valueToStore);
+            } catch (error) {
+                // If stringifying/encrypting or saving fails, log the error.
+                console.error(`Error setting localStorage key "${key}":`, error);
+            }
+        };
+
+        storeValue();
+    }, [key, storedValue, encrypt]);
 
     // 3. Create a callback to clear the value from localStorage.
     const clearValue = useCallback(() => {
@@ -51,9 +80,9 @@ export const useLocalStorageState = <T,>(
             setStoredValue(initialValue);
         } catch (error) {
             // If removal fails, log the error.
-            console.error(`Error clearing localStorage key “${key}”:`, error);
+            console.error(`Error clearing localStorage key "${key}":`, error);
         }
-    }, [key, initialValue]);
+    }, [key, initialValue, encrypt]);
 
     // 4. Return the state, setter, and clear function.
     return [storedValue, setStoredValue, clearValue];

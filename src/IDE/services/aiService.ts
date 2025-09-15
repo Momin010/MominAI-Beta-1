@@ -1,25 +1,114 @@
+import OpenAI from 'openai';
+import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } from '../types';
+import DOMPurify from 'dompurify';
+import { encryptionService } from './encryptionService';
 
+/// <reference types="vite/client" />
 
-// Extend ImportMeta type for Vite env variables
 interface ImportMetaEnv {
   VITE_OPENROUTER_API_KEY: string;
-  // add other VITE_ variables here as needed
 }
 
 interface ImportMeta {
   env: ImportMetaEnv;
 }
 
-import OpenAI from 'openai';
-import type { FileSystemNode, Diagnostic, DependencyReport, InspectedElement } from '../types';
+// Input validation and sanitization
+const MAX_PROMPT_LENGTH = 10000; // 10KB limit
+const SUSPICIOUS_PATTERNS = [
+  /<script[^>]*>.*?<\/script>/gi,
+  /javascript:/gi,
+  /on\w+\s*=/gi,
+  /eval\s*\(/gi,
+  /Function\s*\(/gi,
+  /setTimeout\s*\(/gi,
+  /setInterval\s*\(/gi,
+  /XMLHttpRequest/gi,
+  /fetch\s*\(/gi,
+  /import\s*\(/gi,
+  /require\s*\(/gi,
+  /process\.env/gi,
+  /__dirname/gi,
+  /__filename/gi,
+  /global/gi,
+  /window\.location/gi,
+  /document\.cookie/gi,
+  /localStorage/gi,
+  /sessionStorage/gi
+];
 
-/// <reference types="vite/client" />
-
-const getAI = (): OpenAI => {
-  const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key not found. Please ensure the VITE_OPENROUTER_API_KEY environment variable is set.");
+const validatePrompt = (prompt: string): { isValid: boolean; sanitizedPrompt: string; error?: string } => {
+  // Check length
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    return {
+      isValid: false,
+      sanitizedPrompt: '',
+      error: `Prompt exceeds maximum length of ${MAX_PROMPT_LENGTH} characters`
+    };
   }
+
+  // Check for empty prompt
+  if (!prompt.trim()) {
+    return {
+      isValid: false,
+      sanitizedPrompt: '',
+      error: 'Prompt cannot be empty'
+    };
+  }
+
+  // Sanitize HTML and potentially harmful content
+  const sanitized = DOMPurify.sanitize(prompt, {
+    ALLOWED_TAGS: [], // Remove all HTML tags
+    ALLOWED_ATTR: []
+  });
+
+  // Check for suspicious patterns
+  for (const pattern of SUSPICIOUS_PATTERNS) {
+    if (pattern.test(sanitized)) {
+      return {
+        isValid: false,
+        sanitizedPrompt: '',
+        error: 'Prompt contains potentially harmful content'
+      };
+    }
+  }
+
+  return {
+    isValid: true,
+    sanitizedPrompt: sanitized.trim()
+  };
+};
+
+const getAI = async (): Promise<OpenAI> => {
+  let apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+
+  // If no environment variable, try to get from encrypted localStorage
+  if (!apiKey) {
+    try {
+      const storedApiKey = localStorage.getItem('encrypted_api_key');
+      if (storedApiKey && encryptionService.isEncrypted(storedApiKey)) {
+        apiKey = await encryptionService.decrypt(storedApiKey);
+      }
+    } catch (error) {
+      console.error('Failed to decrypt stored API key:', error);
+    }
+  }
+
+  if (!apiKey) {
+    throw new Error("API Key not found. Please ensure the VITE_OPENROUTER_API_KEY environment variable is set or configure it in settings.");
+  }
+
+  // If we got the API key from environment and it's not already encrypted, encrypt and store it
+  if ((import.meta as any).env?.VITE_OPENROUTER_API_KEY && !localStorage.getItem('encrypted_api_key')) {
+    try {
+      await encryptionService.initialize();
+      const encryptedKey = await encryptionService.encrypt(apiKey);
+      localStorage.setItem('encrypted_api_key', encryptedKey);
+    } catch (error) {
+      console.warn('Failed to encrypt and store API key:', error);
+    }
+  }
+
   return new OpenAI({
     apiKey: apiKey,
     baseURL: 'https://openrouter.ai/api/v1',
@@ -27,7 +116,317 @@ const getAI = (): OpenAI => {
   });
 };
 
-// Fallback project generator when AI is unavailable
+// System instruction factory for different input types
+const getSystemInstruction = (inputType?: string): string => {
+  switch (inputType) {
+    case 'question':
+      return `You are MOMINAI, an expert AI assistant specializing in answering questions about web development, programming, and technology.
+
+## YOUR EXPERTISE:
+- Web Development: React, Vue, Angular, Next.js, HTML, CSS, JavaScript, TypeScript
+- Backend: Node.js, Python, PHP, databases, APIs
+- Tools & Technologies: Git, Docker, CI/CD, testing frameworks
+- Best Practices: Code quality, performance, security, accessibility
+
+## RESPONSE GUIDELINES:
+- Provide clear, accurate, and helpful answers
+- Use examples when relevant to illustrate concepts
+- Structure your response with proper formatting (Markdown)
+- Be concise but comprehensive
+- If explaining code, include practical examples
+- For technical questions, provide step-by-step guidance
+
+## ANSWER FORMAT:
+Respond in friendly, professional Markdown format with:
+- Clear explanations
+- Code examples when helpful
+- Step-by-step instructions for complex topics
+- Links to relevant documentation or resources when appropriate
+
+Always provide the most accurate and up-to-date information available.`;
+
+    case 'command':
+      return `You are MOMINAI, an expert system administrator and developer tools specialist.
+
+## YOUR CAPABILITIES:
+- Terminal Commands: Generate accurate shell commands for various operations
+- Development Tools: npm, yarn, git, docker, build tools
+- System Operations: File management, process control, environment setup
+- Cross-platform: Commands that work on Windows, macOS, and Linux
+
+## COMMAND GENERATION:
+- Generate ONLY the executable command
+- No explanations or conversational text
+- Use appropriate flags and options
+- Consider the user's operating system context
+- Ensure commands are safe and appropriate
+
+## OUTPUT FORMAT:
+Return only the raw, executable command string. No markdown formatting, no code blocks, no explanations.`;
+
+    case 'conversational':
+      return `You are MOMINAI, a friendly and helpful AI assistant for developers.
+
+## YOUR PERSONALITY:
+- Friendly: Warm, approachable, and professional
+- Helpful: Always ready to assist with development tasks
+- Knowledgeable: Expert in web development and programming
+- Encouraging: Supportive of developers at all skill levels
+
+## CONVERSATION GUIDELINES:
+- Respond naturally and conversationally
+- Acknowledge greetings and farewells appropriately
+- Offer help and guidance when appropriate
+- Keep responses concise but friendly
+- Use appropriate emojis sparingly to add warmth
+
+## RESPONSE STYLE:
+- Natural, conversational language
+- Brief but friendly responses
+- Offer assistance when relevant
+- Maintain a positive, supportive tone`;
+
+    case 'code_request':
+    default:
+      return `You are MOMINAI, an ultra-intelligent web development AI that creates production-ready, modern websites without constant guidance. You have extensive knowledge of current web technologies, design trends, and industry best practices.
+
+## YOUR CAPABILITIES:
+- Industry Research: You automatically research similar websites in the target industry and incorporate their best design patterns
+- Competitor Analysis: You analyze top competitors and implement superior solutions
+- Complete Solutions: You generate entire websites/components with all necessary files, not just fragments
+- Modern Technologies: You use React, TypeScript, Tailwind CSS, and cutting-edge web technologies
+- Production Ready: All code includes proper error handling, accessibility, performance optimization, and responsive design
+
+## INTELLIGENT WEB DEVELOPMENT APPROACH:
+
+### When creating websites/components:
+1. Industry Research: Automatically identify the industry and research 3-5 top competitors
+2. Design Analysis: Study their layouts, color schemes, typography, and user experience patterns
+3. Technology Stack: Choose the most appropriate modern technologies for the project
+4. Complete Implementation: Generate all necessary files (HTML, CSS, JS, components, etc.)
+5. Best Practices: Include SEO, accessibility, performance, and security considerations
+
+### For specific requests like "create a navbar":
+- Research modern navbar designs from top websites in the industry
+- Implement responsive design with mobile menu
+- Include proper accessibility features
+- Add smooth animations and hover effects
+- Ensure cross-browser compatibility
+
+### For landing pages:
+- Study successful landing pages in the target industry
+- Implement conversion-focused design patterns
+- Include compelling hero sections, testimonials, CTAs
+- Optimize for mobile and desktop
+- Add proper loading states and animations
+
+## RESPONSE FORMAT:
+
+**Scenario 1: Code Generation/Modification**
+Output ONLY a raw JSON object with this exact structure:
+{
+  "explanation": "Brief explanation of what was created/improved",
+  "actions": [
+    {
+      "action": "create",
+      "type": "directory" | "file",
+      "path": "/path/to/directory-or-file",
+      "content": "COMPLETE file content (only for files)"
+    }
+  ]
+}
+
+IMPORTANT: When creating files in subdirectories that don't exist:
+1. First create the directory structure with "type": "directory"
+2. Then create the files with "type": "file"
+3. Always use forward slashes (/) in paths
+4. Start paths with / (root directory)
+5. Example: To create /src/components/Button.jsx, first create /src/components/ directory
+
+**Scenario 2: Questions/Explanations**
+Respond in friendly Markdown format with detailed, helpful answers.
+
+## DESIGN PRINCIPLES:
+- Glass Morphism: Use backdrop blur and transparency effects
+- Modern Typography: Clean, readable fonts with proper hierarchy
+- Responsive Design: Mobile-first approach
+- Performance: Optimized images, lazy loading, minimal JavaScript
+- Accessibility: WCAG compliant with proper ARIA labels
+- SEO: Proper meta tags, semantic HTML, fast loading
+
+## TECHNICAL EXPERTISE:
+- Frontend: React, Vue, Angular, Next.js, Nuxt.js
+- Styling: Tailwind CSS, Styled Components, CSS Modules
+- Backend: Node.js, Python, PHP, databases
+- Tools: Webpack, Vite, Docker, CI/CD
+- APIs: REST, GraphQL, WebSockets
+- Deployment: Vercel, Netlify, AWS, DigitalOcean
+
+Remember: You are an autonomous AI that creates complete, professional solutions. Don't ask for clarification - use your knowledge to make intelligent decisions and deliver production-ready code!
+
+## AUTONOMOUS DECISION MAKING:
+
+### When users say "create a website":
+- Automatically determine the industry from context clues
+- Research 3-5 top competitors in that industry
+- Choose the most appropriate technology stack
+- Generate a complete, functional website with all necessary components
+
+### When users say "add a navbar":
+- Research modern navbar designs from top websites
+- Implement responsive navigation with mobile menu
+- Include proper accessibility features
+- Add smooth animations and hover effects
+- Ensure cross-browser compatibility
+
+### When users say "make it look good":
+- Analyze current design and identify improvement areas
+- Research design trends in the relevant industry
+- Implement modern design patterns and best practices
+- Add proper spacing, typography, and visual hierarchy
+- Ensure the design is both beautiful and functional
+
+### When users request components:
+- Generate complete, reusable components
+- Include proper TypeScript types and error handling
+- Add accessibility features and keyboard navigation
+- Implement responsive design and mobile optimization
+- Follow React best practices and hooks patterns
+
+## ZERO GUIDANCE PHILOSOPHY:
+Your goal is to deliver complete, production-ready solutions without requiring follow-up questions. Use your extensive knowledge of:
+- Modern web development best practices
+- Industry-specific design patterns
+- Current technology trends
+- User experience principles
+- Performance optimization techniques
+- Accessibility standards
+- SEO best practices
+
+Deliver excellence on the first attempt!`;
+  }
+};
+
+export async function* streamAIResponse(prompt: string, inputType?: string): AsyncGenerator<string> {
+  try {
+    // Validate and sanitize the prompt
+    const validation = validatePrompt(prompt);
+    if (!validation.isValid) {
+      yield `\n\n**Validation Error:**\n${validation.error}\n\nPlease check your input and try again.`;
+      return;
+    }
+
+    const ai = await getAI();
+    const systemInstruction = getSystemInstruction(inputType);
+
+    const response = await ai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: validation.sanitizedPrompt }
+      ],
+      stream: true
+    });
+
+    for await (const chunk of response) {
+      const content = chunk.choices[0]?.delta?.content || '';
+      if (content) {
+        yield content;
+      }
+    }
+  } catch (error) {
+    let errorMessage = 'An unknown error occurred.';
+    if (error instanceof Error) {
+      if (error.message.includes('500')) {
+        errorMessage = 'AI service is temporarily unavailable (500 error). Please try again in a moment.';
+      } else if (error.message.includes('429')) {
+        errorMessage = 'Too many requests. Please wait a moment before trying again.';
+      } else if (error.message.includes('401')) {
+        errorMessage = 'API key is invalid or expired. Please check your settings.';
+      } else if (error.message.includes('API Key not found')) {
+        errorMessage = 'API key is not configured. Please set the VITE_OPENROUTER_API_KEY environment variable.';
+      } else if (error.message.includes('fetch')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else {
+        errorMessage = error.message;
+      }
+    }
+
+    yield `\n\n**AI Service Error:**\n${errorMessage}\n\nPlease check your API key in the Settings panel or review the browser console for more details.`;
+  }
+}
+
+// Export other existing functions (keeping them for backward compatibility)
+export const generateCodeForFile = async (userPrompt: string, fileName: string): Promise<string> => {
+  try {
+    // Validate and sanitize the prompt
+    const validation = validatePrompt(userPrompt);
+    if (!validation.isValid) {
+      throw new Error(`Validation failed: ${validation.error}`);
+    }
+
+    const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return getFallbackCode(validation.sanitizedPrompt, fileName);
+    }
+
+    const ai = await getAI();
+
+    const fullPrompt = `🎯 WEB DEVELOPMENT TASK: Create production-ready code for "${fileName}"
+
+USER REQUEST: "${validation.sanitizedPrompt}"
+
+## 🧠 INTELLIGENT ANALYSIS:
+1. **Industry Identification**: Determine the industry/sector from the request
+2. **Competitor Research**: Identify 3-5 top websites in this industry and analyze their:
+   - Layout patterns and design approaches
+   - Color schemes and typography
+   - User experience flows
+   - Technical implementations
+3. **Best Practices**: Incorporate modern web development standards
+4. **Complete Solution**: Generate fully functional, production-ready code
+
+## 🎨 MODERN REQUIREMENTS:
+- **Responsive Design**: Mobile-first approach with breakpoints
+- **Accessibility**: WCAG compliant with proper ARIA labels
+- **Performance**: Optimized code, minimal bundle size, fast loading
+- **SEO**: Proper meta tags, semantic HTML structure
+- **Modern CSS**: Use CSS Grid, Flexbox, modern selectors
+- **JavaScript**: ES6+, async/await, error handling
+- **React**: If applicable, use hooks, context, proper component structure
+- **NO EXTERNAL IMAGES**: Do not reference any external image files or placeholders
+- **CSS-ONLY DESIGN**: Use gradients, patterns, or simple backgrounds
+- **SELF-CONTAINED**: All styling should be inline or CSS-based, no external assets
+
+## 📋 OUTPUT FORMAT:
+Generate ONLY the raw, complete code for the file. No explanations, no markdown formatting, no code fences. Just the pure, production-ready code that can be directly used.
+
+## 🚀 QUALITY STANDARDS:
+- Clean, readable code with proper indentation
+- Comprehensive error handling
+- Performance optimized
+- Cross-browser compatible
+- Mobile responsive
+- Accessibility compliant
+- Modern best practices implemented
+
+Create the complete, professional solution now:`;
+
+    const response = await ai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [{ role: 'user', content: fullPrompt }],
+      temperature: 0.3,
+      max_tokens: 4000
+    });
+
+    return response.choices[0].message.content.trim();
+  } catch (error) {
+    console.error("Error generating file with AI:", error);
+    throw error;
+  }
+};
+
+// Fallback functions
 const getFallbackProject = (prompt: string): Record<string, string> => {
   return {
     '/src/components/Welcome.jsx': `import React from 'react';
@@ -86,7 +485,6 @@ code {
   };
 };
 
-// Fallback code generator when AI is unavailable
 const getFallbackCode = (userPrompt: string, fileName: string): string => {
   const fileExtension = fileName.split('.').pop()?.toLowerCase();
 
@@ -157,235 +555,13 @@ console.log('${fileName} loaded - AI service was unavailable during generation')
   }
 };
 
-
-export async function* streamAIResponse(prompt: string): AsyncGenerator<string> {
-    try {
-        const ai = getAI();
-        const systemInstruction = `You are MOMINAI, an ultra-intelligent web development AI that creates production-ready, modern websites without constant guidance. You have extensive knowledge of current web technologies, design trends, and industry best practices.
-
-## 🎯 YOUR CAPABILITIES:
-- **Industry Research**: You automatically research similar websites in the target industry and incorporate their best design patterns
-- **Competitor Analysis**: You analyze top competitors and implement superior solutions
-- **Complete Solutions**: You generate entire websites/components with all necessary files, not just fragments
-- **Modern Technologies**: You use React, TypeScript, Tailwind CSS, and cutting-edge web technologies
-- **Production Ready**: All code includes proper error handling, accessibility, performance optimization, and responsive design
-
-## 🚀 INTELLIGENT WEB DEVELOPMENT APPROACH:
-
-### When creating websites/components:
-1. **Industry Research**: Automatically identify the industry and research 3-5 top competitors
-2. **Design Analysis**: Study their layouts, color schemes, typography, and user experience patterns
-3. **Technology Stack**: Choose the most appropriate modern technologies for the project
-4. **Complete Implementation**: Generate all necessary files (HTML, CSS, JS, components, etc.)
-5. **Best Practices**: Include SEO, accessibility, performance, and security considerations
-
-### For specific requests like "create a navbar":
-- Research modern navbar designs from top websites in the industry
-- Implement responsive design with mobile menu
-- Include proper accessibility features
-- Add smooth animations and hover effects
-- Ensure cross-browser compatibility
-
-### For landing pages:
-- Study successful landing pages in the target industry
-- Implement conversion-focused design patterns
-- Include compelling hero sections, testimonials, CTAs
-- Optimize for mobile and desktop
-- Add proper loading states and animations
-
-## 📋 RESPONSE FORMAT:
-
-**Scenario 1: Code Generation/Modification**
-Output ONLY a raw JSON object with this exact structure:
-{
-  "explanation": "Brief explanation of what was created/improved",
-  "actions": [
-    {
-      "action": "create",
-      "type": "directory" | "file",
-      "path": "/path/to/directory-or-file",
-      "content": "COMPLETE file content (only for files)"
-    }
-  ]
-}
-
-IMPORTANT: When creating files in subdirectories that don't exist:
-1. First create the directory structure with "type": "directory"
-2. Then create the files with "type": "file"
-3. Always use forward slashes (/) in paths
-4. Start paths with / (root directory)
-5. Example: To create /src/components/Button.jsx, first create /src/components/ directory
-
-**Scenario 2: Questions/Explanations**
-Respond in friendly Markdown format with detailed, helpful answers.
-
-## 🎨 DESIGN PRINCIPLES:
-- **Glass Morphism**: Use backdrop blur and transparency effects
-- **Modern Typography**: Clean, readable fonts with proper hierarchy
-- **Responsive Design**: Mobile-first approach
-- **Performance**: Optimized images, lazy loading, minimal JavaScript
-- **Accessibility**: WCAG compliant with proper ARIA labels
-- **SEO**: Proper meta tags, semantic HTML, fast loading
-
-## 🛠️ TECHNICAL EXPERTISE:
-- **Frontend**: React, Vue, Angular, Next.js, Nuxt.js
-- **Styling**: Tailwind CSS, Styled Components, CSS Modules
-- **Backend**: Node.js, Python, PHP, databases
-- **Tools**: Webpack, Vite, Docker, CI/CD
-- **APIs**: REST, GraphQL, WebSockets
-- **Deployment**: Vercel, Netlify, AWS, DigitalOcean
-
-Remember: You are an autonomous AI that creates complete, professional solutions. Don't ask for clarification - use your knowledge to make intelligent decisions and deliver production-ready code!
-
-## 🤖 AUTONOMOUS DECISION MAKING:
-
-### When users say "create a website":
-- Automatically determine the industry from context clues
-- Research 3-5 top competitors in that industry
-- Choose the most appropriate technology stack
-- Generate a complete, functional website with all necessary components
-- Include proper navigation, responsive design, and modern UX patterns
-
-### When users say "add a navbar":
-- Research modern navbar designs from top websites
-- Implement responsive navigation with mobile menu
-- Include proper accessibility features
-- Add smooth animations and hover effects
-- Ensure cross-browser compatibility
-
-### When users say "make it look good":
-- Analyze current design and identify improvement areas
-- Research design trends in the relevant industry
-- Implement modern design patterns and best practices
-- Add proper spacing, typography, and visual hierarchy
-- Ensure the design is both beautiful and functional
-
-### When users request components:
-- Generate complete, reusable components
-- Include proper TypeScript types and error handling
-- Add accessibility features and keyboard navigation
-- Implement responsive design and mobile optimization
-- Follow React best practices and hooks patterns
-
-## 🎯 ZERO GUIDANCE PHILOSOPHY:
-Your goal is to deliver complete, production-ready solutions without requiring follow-up questions. Use your extensive knowledge of:
-- Modern web development best practices
-- Industry-specific design patterns
-- Current technology trends
-- User experience principles
-- Performance optimization techniques
-- Accessibility standards
-- SEO best practices
-
-Deliver excellence on the first attempt! 🚀`;
-
-        const response = await ai.chat.completions.create({
-            model: 'openai/gpt-4o-mini',
-            messages: [
-                { role: 'system', content: systemInstruction },
-                { role: 'user', content: prompt }
-            ],
-            stream: true
-        });
-
-        for await (const chunk of response) {
-            yield chunk.choices[0]?.delta?.content || '';
-        }
-
-    } catch (error) {
-        console.error("Error getting AI stream response:", error);
-
-        // Handle different types of errors
-        let errorMessage = 'An unknown error occurred.';
-        if (error instanceof Error) {
-            if (error.message.includes('500')) {
-                errorMessage = 'AI service is temporarily unavailable (500 error). Please try again in a moment.';
-            } else if (error.message.includes('429')) {
-                errorMessage = 'Too many requests. Please wait a moment before trying again.';
-            } else if (error.message.includes('401')) {
-                errorMessage = 'API key is invalid or expired. Please check your settings.';
-            } else {
-                errorMessage = error.message;
-            }
-        }
-
-        yield `\n\n**AI Service Error:**\n${errorMessage}\n\nPlease check your API key in the Settings panel or review the browser console for more details.`;
-    }
-}
-
-
-export const generateCodeForFile = async (userPrompt: string, fileName: string): Promise<string> => {
-    try {
-        // Check if API key is available
-        const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
-        if (!apiKey) {
-            return getFallbackCode(userPrompt, fileName);
-        }
-
-        const ai = getAI();
-
-        // Enhanced prompt with industry research and competitor analysis
-        const fullPrompt = `🎯 WEB DEVELOPMENT TASK: Create production-ready code for "${fileName}"
-
-USER REQUEST: "${userPrompt}"
-
-## 🧠 INTELLIGENT ANALYSIS:
-1. **Industry Identification**: Determine the industry/sector from the request
-2. **Competitor Research**: Identify 3-5 top websites in this industry and analyze their:
-   - Layout patterns and design approaches
-   - Color schemes and typography
-   - User experience flows
-   - Technical implementations
-3. **Best Practices**: Incorporate modern web development standards
-4. **Complete Solution**: Generate fully functional, production-ready code
-
-## 🎨 MODERN REQUIREMENTS:
-- **Responsive Design**: Mobile-first approach with breakpoints
-- **Accessibility**: WCAG compliant with proper ARIA labels
-- **Performance**: Optimized code, minimal bundle size, fast loading
-- **SEO**: Proper meta tags, semantic HTML structure
-- **Modern CSS**: Use CSS Grid, Flexbox, modern selectors
-- **JavaScript**: ES6+, async/await, error handling
-- **React**: If applicable, use hooks, context, proper component structure
-- **NO EXTERNAL IMAGES**: Do not reference any external image files or placeholders
-- **CSS-ONLY DESIGN**: Use gradients, patterns, or simple backgrounds
-- **SELF-CONTAINED**: All styling should be inline or CSS-based, no external assets
-
-## 📋 OUTPUT FORMAT:
-Generate ONLY the raw, complete code for the file. No explanations, no markdown formatting, no code fences. Just the pure, production-ready code that can be directly used.
-
-## 🚀 QUALITY STANDARDS:
-- Clean, readable code with proper indentation
-- Comprehensive error handling
-- Performance optimized
-- Cross-browser compatible
-- Mobile responsive
-- Accessibility compliant
-- Modern best practices implemented
-
-Create the complete, professional solution now:`;
-
-        const response = await ai.chat.completions.create({
-            model: 'openai/gpt-4o-mini',
-            messages: [{ role: 'user', content: fullPrompt }],
-            temperature: 0.3, // Lower temperature for more consistent, professional code
-            max_tokens: 4000 // Allow for comprehensive code generation
-        });
-
-        return response.choices[0].message.content.trim();
-
-    } catch (error) {
-        console.error("Error generating file with AI:", error);
-        throw error;
-    }
-};
-
+// Export other functions for backward compatibility
 export const getInlineCodeSuggestion = async (codeBeforeCursor: string): Promise<string> => {
-    try {
-        const ai = getAI();
-        if (codeBeforeCursor.trim().length < 10) return "";
+  try {
+    const ai = await getAI();
+    if (codeBeforeCursor.trim().length < 10) return "";
 
-        const fullPrompt = `You are a code completion AI. Provide the next few lines of code based on the context.
+    const fullPrompt = `You are a code completion AI. Provide the next few lines of code based on the context.
 Provide only the code that should be inserted after the cursor.
 Do not repeat any of the code that was given to you.
 Do not include any explanatory text or markdown formatting.
@@ -395,38 +571,37 @@ Code before cursor:
 ---
 ${codeBeforeCursor}`;
 
-        const response = await ai.chat.completions.create({
-            model: 'openai/gpt-4o-mini',
-            messages: [{ role: 'user', content: fullPrompt }],
-            temperature: 0.2,
-            max_tokens: 100
-        });
+    const response = await ai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [{ role: 'user', content: fullPrompt }],
+      temperature: 0.2,
+      max_tokens: 100
+    });
 
-        return response.choices[0].message.content;
-
-    } catch (error) {
-        console.error("Error getting inline code suggestion:", error);
-        return "";
-    }
+    return response.choices[0].message.content;
+  } catch (error) {
+    console.error("Error getting inline code suggestion:", error);
+    return "";
+  }
 };
 
 export interface AIFixResponse {
-    filePath: string;
-    fixedCode: string;
-    explanation: string;
-    detailedExplanation: string;
+  filePath: string;
+  fixedCode: string;
+  explanation: string;
+  detailedExplanation: string;
 }
 
 export const fixCodeWithAI = async (
-    errorMessage: string,
-    files: {path: string, content: string}[],
-    entryPointFile?: string
+  errorMessage: string,
+  files: {path: string, content: string}[],
+  entryPointFile?: string
 ): Promise<AIFixResponse> => {
-    const ai = getAI();
-    const fileContents = files.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
-    const entryPointHint = entryPointFile ? `The execution entry point was: \`${entryPointFile}\`.\n` : '';
+  const ai = await getAI();
+  const fileContents = files.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
+  const entryPointHint = entryPointFile ? `The execution entry point was: \`${entryPointFile}\`.\n` : '';
 
-    const prompt = `A web app produced an error.
+  const prompt = `A web app produced an error.
 ${entryPointHint}
 Error:
 \`\`\`
@@ -446,226 +621,214 @@ Provide your response as a JSON object with the following structure:
 }
 Ensure "fixedCode" contains the complete content for the entire file.`;
 
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    });
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' }
+  });
 
-    try {
-        const result: AIFixResponse = JSON.parse(response.choices[0].message.content.trim());
-        if (!result.filePath || typeof result.fixedCode === 'undefined' || !result.detailedExplanation) {
-            throw new Error("AI response is missing required fields.");
-        }
-        return result;
-    } catch (e) {
-        console.error("Failed to parse AI fix response:", response.choices[0].message.content, e);
-        throw new Error("AI returned an invalid response. Could not apply fix.");
+  try {
+    const result: AIFixResponse = JSON.parse(response.choices[0].message.content.trim());
+    if (!result.filePath || typeof result.fixedCode === 'undefined' || !result.detailedExplanation) {
+      throw new Error("AI response is missing required fields.");
     }
-}
-
-// --- NEW AI FEATURES ---
-
-export const getSuggestedFix = async (fileContent: string, problem: Diagnostic, activeFile: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `You are an expert developer fixing a single line of code.
-A linter has found an issue in the file \`${activeFile}\`:
-Line ${problem.line}: ${problem.message}
-Severity: ${problem.severity}
-
-Here is the full code content:
-\`\`\`
-${fileContent}
-\`\`\`
-
-Based on the error, provide the single, corrected line of code for line ${problem.line}.
-Do NOT provide explanations, context, or code fences. Your response must be ONLY the corrected line of code.
-For example, if the original line is "console.log(myVar)" and the fix is to remove it, return an empty string. If the fix is to change it to "console.info(myVar)", return exactly that.`;
-
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content; // Return the raw text which should be just the line
+    return result;
+  } catch (e) {
+    console.error("Failed to parse AI fix response:", response.choices[0].message.content, e);
+    throw new Error("AI returned an invalid response. Could not apply fix.");
+  }
 };
 
+// Keep other existing exports for backward compatibility
 export const getCodeExplanation = async (code: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `Explain the following code snippet concisely. Format the response as Markdown. \n\n\`\`\`\n${code}\n\`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content;
+  const ai = await getAI();
+  const prompt = `Explain the following code snippet concisely. Format the response as Markdown. \n\n\`\`\`\n${code}\n\`\`\``;
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content;
 };
 
 export const analyzeCodeForBugs = async (code: string): Promise<Omit<Diagnostic, 'source'>[]> => {
-    const ai = getAI();
-    const prompt = `Analyze the following code for potential bugs, logical errors, or anti-patterns.
+  const ai = await getAI();
+  const prompt = `Analyze the following code for potential bugs, logical errors, or anti-patterns.
 Do not report stylistic issues. Focus on actual problems that could lead to runtime errors or incorrect behavior.
 Respond with a JSON array of issues, where each issue is an object with line, startCol, endCol, message, severity.
 
 \`\`\`
 ${code}
 \`\`\`
-`;
-    try {
-        const response = await ai.chat.completions.create({
-            model: 'openai/gpt-4o-mini',
-            messages: [{ role: 'user', content: prompt }],
-            response_format: { type: 'json_object' }
-        });
-        return JSON.parse(response.choices[0].message.content.trim());
-    } catch (error) {
-        console.error("AI Bug Analysis failed:", error);
-        return [];
-    }
+ `;
+  try {
+    const response = await ai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' }
+    });
+    return JSON.parse(response.choices[0].message.content.trim());
+  } catch (error) {
+    console.error("AI Bug Analysis failed:", error);
+    return [];
+  }
 };
 
 export const generateMermaidDiagram = async (code: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `Generate a Mermaid.js flowchart or graph diagram to visualize the logic of the following code.
+  const ai = await getAI();
+  const prompt = `Generate a Mermaid.js flowchart or graph diagram to visualize the logic of the following code.
 Only output the raw Mermaid code inside a \`\`\`mermaid\`\`\` block. Do not include any other text or explanation.
 Code:
 \`\`\`
 ${code}
 \`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.replace(/```mermaid\n|```/g, '').trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.replace(/```mermaid\n|```/g, '').trim();
 };
 
 export const generateTestFile = async (code: string, filePath: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `You are an expert in software testing. Generate a complete test file for the following code from \`${filePath}\`.
+  const ai = await getAI();
+  const prompt = `You are an expert in software testing. Generate a complete test file for the following code from \`${filePath}\`.
 Use a modern testing framework like Jest or React Testing Library. Cover the main functionalities and edge cases.
 Only output the raw code for the new test file. Do not add any conversational text or markdown formatting.
 Code to test:
 \`\`\`
 ${code}
 \`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const optimizeCss = async (css: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `Optimize the following CSS code. Combine selectors, remove redundancy, and improve performance where possible.
+  const ai = await getAI();
+  const prompt = `Optimize the following CSS code. Combine selectors, remove redundancy, and improve performance where possible.
 Only output the raw, optimized CSS code. Do not add any conversational text or markdown formatting.
 CSS to optimize:
 \`\`\`css
 ${css}
 \`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const generateCommitMessage = async (files: {path: string, content: string}[]): Promise<string> => {
-    const ai = getAI();
-    const fileContents = files.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
-    const prompt = `Analyze the following workspace files and generate a descriptive, conventional commit message.
+  const ai = await getAI();
+  const fileContents = files.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
+  const prompt = `Analyze the following workspace files and generate a descriptive, conventional commit message.
 The message should start with a type (e.g., feat, fix, chore), followed by a concise summary.
 \`\`\`
 ${fileContents}
 \`\`\`
-`;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.trim();
+ `;
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const generateRegex = async (description: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `Generate a JavaScript-compatible regular expression for the following description.
+  const ai = await getAI();
+  const prompt = `Generate a JavaScript-compatible regular expression for the following description.
 Only output the raw regex pattern. Do not include slashes, flags, or any other text.
 Description: "${description}"`;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const generateDocsForCode = async (code: string, filePath: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `Generate comprehensive Markdown documentation for the following file: \`${filePath}\`.
+  const ai = await getAI();
+  const prompt = `Generate comprehensive Markdown documentation for the following file: \`${filePath}\`.
 Explain the purpose of the file, its functions/classes, parameters, and return values.
 \`\`\`
 ${code}
 \`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const generateTheme = async (description: string): Promise<Record<string, string>> => {
-    const ai = getAI();
-    const prompt = `Generate a set of CSS variables for a web IDE theme based on this description: "${description}".
+  const ai = await getAI();
+  const prompt = `Generate a set of CSS variables for a web IDE theme based on this description: "${description}".
 Provide a JSON object with keys like "--text-primary", "--ui-panel-bg", "--accent-primary", etc., and their corresponding color values.
 The required keys are: --text-primary, --text-secondary, --ui-panel-bg, --ui-panel-bg-heavy, --ui-border, --ui-hover-bg, --accent-primary.`;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    });
-    return JSON.parse(response.choices[0].message.content.trim());
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' }
+  });
+  return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const migrateCode = async (code: string, from: string, to: string): Promise<string> => {
-    const ai = getAI();
-    const prompt = `You are an expert code migrator. Convert the following code from ${from} to ${to}.
+  const ai = await getAI();
+  const prompt = `You are an expert code migrator. Convert the following code from ${from} to ${to}.
 Only output the raw, converted code. Do not add any conversational text or markdown formatting.
 \`\`\`${from}
 ${code}
 \`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }]
-    });
-    return response.choices[0].message.content.trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const generateCodeFromImage = async (base64Image: string, prompt: string): Promise<string> => {
-    const ai = getAI();
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o',
-        messages: [
-            {
-                role: 'user',
-                content: [
-                    { type: 'text', text: `Generate the HTML and CSS code for the UI in this image. The user provides this hint: "${prompt}". Respond with a single HTML file containing a <style> tag for the CSS. Do not add any conversational text, explanations, or markdown formatting.` },
-                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
-                ]
-            }
+  // Validate and sanitize the prompt
+  const validation = validatePrompt(prompt);
+  if (!validation.isValid) {
+    throw new Error(`Validation failed: ${validation.error}`);
+  }
+
+  const ai = await getAI();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: `Generate the HTML and CSS code for the UI in this image. The user provides this hint: "${validation.sanitizedPrompt}". Respond with a single HTML file containing a <style> tag for the CSS. Do not add any conversational text, explanations, or markdown formatting.` },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
         ]
-    });
-    return response.choices[0].message.content.trim();
+      }
+    ]
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const scaffoldProject = async (prompt: string): Promise<Record<string, string>> => {
-    try {
-        const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
-        if (!apiKey) {
-            return getFallbackProject(prompt);
-        }
+  try {
+    // Validate and sanitize the prompt
+    const validation = validatePrompt(prompt);
+    if (!validation.isValid) {
+      throw new Error(`Validation failed: ${validation.error}`);
+    }
 
-        const ai = getAI();
+    const apiKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return getFallbackProject(validation.sanitizedPrompt);
+    }
 
-        const fullPrompt = `🚀 COMPLETE PROJECT SCAFFOLDING WITH INDUSTRY RESEARCH
+    const ai = await getAI();
 
-USER REQUEST: "${prompt}"
+    const fullPrompt = `🚀 COMPLETE PROJECT SCAFFOLDING WITH INDUSTRY RESEARCH
+
+USER REQUEST: "${validation.sanitizedPrompt}"
 
 ## 🧠 INTELLIGENT PROJECT ANALYSIS:
 
@@ -747,45 +910,50 @@ CRITICAL DIRECTORY REQUIREMENTS:
 
 Generate the complete, industry-researched, production-ready project structure now:`;
 
-        const response = await ai.chat.completions.create({
-            model: 'openai/gpt-4o-mini',
-            messages: [{ role: 'user', content: fullPrompt }],
-            response_format: { type: 'json_object' },
-            temperature: 0.2, // Lower temperature for more consistent project structure
-            max_tokens: 8000 // Allow for comprehensive project generation
-        });
-        return JSON.parse(response.choices[0].message.content.trim());
-    } catch (error) {
-        console.error("Error scaffolding project with AI:", error);
-        // Return fallback project structure
-        return getFallbackProject(prompt);
-    }
+    const response = await ai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [{ role: 'user', content: fullPrompt }],
+      response_format: { type: 'json_object' },
+      temperature: 0.2,
+      max_tokens: 8000
+    });
+    return JSON.parse(response.choices[0].message.content.trim());
+  } catch (error) {
+    console.error("Error scaffolding project with AI:", error);
+    return getFallbackProject(prompt);
+  }
 };
 
 export const analyzeDependencies = async (packageJsonContent: string): Promise<DependencyReport> => {
-    const ai = getAI();
-    const prompt = `Analyze this package.json content. For each dependency and devDependency, determine if it is outdated (assume today's date) or has known vulnerabilities.
+  const ai = await getAI();
+  const prompt = `Analyze this package.json content. For each dependency and devDependency, determine if it is outdated (assume today's date) or has known vulnerabilities.
 Provide a brief summary for major version updates.
 Respond with a JSON object with dependencies and devDependencies arrays.
 \`\`\`json
 ${packageJsonContent}
 \`\`\``;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    });
-    return JSON.parse(response.choices[0].message.content.trim());
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' }
+  });
+  return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const generateCodeFromFigma = async (fileUrl: string, token: string, userPrompt: string): Promise<string> => {
-    const ai = getAI();
+  // Validate and sanitize the prompt
+  const validation = validatePrompt(userPrompt);
+  if (!validation.isValid) {
+    throw new Error(`Validation failed: ${validation.error}`);
+  }
 
-    const prompt = `🎨 FIGMA TO CODE CONVERSION WITH INDUSTRY RESEARCH
+  const ai = await getAI();
+
+  const prompt = `🎨 FIGMA TO CODE CONVERSION WITH INDUSTRY RESEARCH
 
 ## 📋 PROJECT DETAILS:
 - **Figma URL**: ${fileUrl}
-- **User Prompt**: "${userPrompt}"
+- **User Prompt**: "${validation.sanitizedPrompt}"
 - **Access Token**: ${token ? 'Provided' : 'Not provided'}
 
 ## 🧠 INTELLIGENT DESIGN ANALYSIS:
@@ -833,18 +1001,18 @@ Generate a single, complete HTML file with:
 
 Create the complete, production-ready HTML/CSS implementation now:`;
 
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2, // Consistent design conversion
-        max_tokens: 6000 // Allow for comprehensive HTML/CSS generation
-    });
-    return response.choices[0].message.content.trim();
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.2,
+    max_tokens: 6000
+  });
+  return response.choices[0].message.content.trim();
 };
 
 export const reviewCode = async (code: string): Promise<Omit<Diagnostic, 'source'>[]> => {
-    const ai = getAI();
-    const prompt = `You are an expert senior software engineer performing a code review. Analyze the following code for issues related to quality, best practices, performance, security, and potential bugs.
+  const ai = await getAI();
+  const prompt = `You are an expert senior software engineer performing a code review. Analyze the following code for issues related to quality, best practices, performance, security, and potential bugs.
 Do not report stylistic issues like missing semicolons unless they cause functional problems. Focus on substantive issues.
 Respond with a JSON array of review comments, where each comment is an object with line, startCol, endCol, message, severity.
 
@@ -852,52 +1020,53 @@ Code to review:
 \`\`\`
 ${code}
 \`\`\`
-`;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    });
-    return JSON.parse(response.choices[0].message.content.trim());
+ `;
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' }
+  });
+  return JSON.parse(response.choices[0].message.content.trim());
 };
 
-
 export const deployProject = async (): Promise<{ url: string; success: boolean; message: string }> => {
-    const ai = getAI();
-    const prompt = `Simulate a successful deployment of a static web project. Generate a realistic-looking but fake deployment URL on a platform like Vercel or Netlify.
+  const ai = await getAI();
+  const prompt = `Simulate a successful deployment of a static web project. Generate a realistic-looking but fake deployment URL on a platform like Vercel or Netlify.
 Respond with a JSON object containing a "url" and a "message".`;
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    });
-    const result = JSON.parse(response.choices[0].message.content.trim());
-    return { ...result, success: true };
+
+  // Note: This function doesn't take user input, so no validation needed
+  const response = await ai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' }
+  });
+  const result = JSON.parse(response.choices[0].message.content.trim());
+  return { ...result, success: true };
 };
 
 export const updateCssInProject = async (
-    files: { path: string; content: string }[],
-    selector: string,
-    newStyles: Record<string, string>
+  files: { path: string; content: string }[],
+  selector: string,
+  newStyles: Record<string, string>
 ): Promise<{ filePath: string, updatedCode: string }> => {
-    const ai = getAI();
-    const cssFiles = files.filter(f => f.path.endsWith('.css'));
-    const htmlFilesWithStyle = files.filter(f => f.path.endsWith('.html') && f.content.includes('<style>'));
+  const ai = getAI();
+  const cssFiles = files.filter(f => f.path.endsWith('.css'));
+  const htmlFilesWithStyle = files.filter(f => f.path.endsWith('.html') && f.content.includes('<style>'));
 
-    let contextFiles = [...cssFiles, ...htmlFilesWithStyle];
+  let contextFiles = [...cssFiles, ...htmlFilesWithStyle];
 
-    if (contextFiles.length === 0) {
-        const firstHtmlFile = files.find(f => f.path.endsWith('.html'));
-        if (!firstHtmlFile) {
-            throw new Error("No CSS or HTML file found to update.");
-        }
-        contextFiles = [firstHtmlFile];
+  if (contextFiles.length === 0) {
+    const firstHtmlFile = files.find(f => f.path.endsWith('.html'));
+    if (!firstHtmlFile) {
+      throw new Error("No CSS or HTML file found to update.");
     }
+    contextFiles = [firstHtmlFile];
+  }
 
-    const fileContents = contextFiles.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
-    const stylesToApply = JSON.stringify(newStyles, null, 2);
+  const fileContents = contextFiles.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n');
+  const stylesToApply = JSON.stringify(newStyles, null, 2);
 
-    const prompt = `You are an expert CSS refactoring tool. A user wants to apply new styles to an element with the selector \`${selector}\`.
+  const prompt = `You are an expert CSS refactoring tool. A user wants to apply new styles to an element with the selector \`${selector}\`.
 The new styles are:
 ${stylesToApply}
 
@@ -912,198 +1081,34 @@ Your task is to intelligently update the correct file.
     *   If there are no \`.css\` files but an HTML file has a \`<style>\` tag, add the new rule inside that tag.
     *   If no file has a \`<style>\` tag, add a new \`<style>\` block inside the \`<head>\` of the most relevant HTML file (like \`index.html\`) and add the rule there.
 4.  **Respond with JSON:** Provide a JSON object containing the path of the single file you chose to modify (\`filePath\`) and the complete, new content of that file (\`updatedCode\`).
-`;
+ `;
 
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    });
+  const openai = await getAI();
+  const response = await openai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' }
+  });
 
-    return JSON.parse(response.choices[0].message.content.trim());
-};
-
-// NEW: Industry Research and Competitor Analysis Function
-export const researchIndustryAndCompetitors = async (industry: string, projectType: string): Promise<{
-    industry: string;
-    competitors: Array<{
-        name: string;
-        url: string;
-        strengths: string[];
-        designPatterns: string[];
-        technologies: string[];
-    }>;
-    trends: string[];
-    recommendations: string[];
-}> => {
-    const ai = getAI();
-
-    const prompt = `🔍 INDUSTRY RESEARCH & COMPETITOR ANALYSIS
-
-## 🎯 RESEARCH TASK:
-- **Industry**: ${industry}
-- **Project Type**: ${projectType}
-
-## 📊 COMPREHENSIVE ANALYSIS REQUIRED:
-
-### 1. Top Competitors Identification:
-Find 5-7 leading websites/companies in this industry and analyze:
-- **Design Excellence**: Color schemes, typography, layout patterns
-- **User Experience**: Navigation, conversion funnels, interaction design
-- **Technical Stack**: Frontend/backend technologies, performance optimizations
-- **Content Strategy**: How they present information and engage users
-- **Mobile Experience**: Responsive design and mobile-specific features
-
-### 2. Industry Trends Analysis:
-- Current design trends in this industry
-- Popular technologies and frameworks
-- User behavior patterns
-- Performance and SEO best practices
-- Accessibility standards
-
-### 3. Strategic Recommendations:
-- Design patterns to implement
-- Technology stack suggestions
-- Performance optimization strategies
-- SEO and accessibility considerations
-- Competitive advantages to pursue
-
-## 📋 OUTPUT FORMAT:
-Respond with a JSON object containing:
-{
-  "industry": "string",
-  "competitors": [
-    {
-      "name": "string",
-      "url": "string",
-      "strengths": ["array of key strengths"],
-      "designPatterns": ["array of design approaches"],
-      "technologies": ["array of tech stack elements"]
-    }
-  ],
-  "trends": ["array of current industry trends"],
-  "recommendations": ["array of strategic recommendations"]
-}
-
-Provide detailed, actionable insights based on real industry knowledge and current best practices.`;
-
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.1 // Very low temperature for consistent research results
-    });
-
-    return JSON.parse(response.choices[0].message.content.trim());
-};
-
-// NEW: Complete Website Generator with Industry Intelligence
-export const generateCompleteWebsite = async (industry: string, businessType: string, features: string[] = []): Promise<Record<string, string>> => {
-    const ai = getAI();
-
-    // First, research the industry
-    const industryResearch = await researchIndustryAndCompetitors(industry, businessType);
-
-    const prompt = `🌟 COMPLETE WEBSITE GENERATION WITH INDUSTRY INTELLIGENCE
-
-## 📊 INDUSTRY RESEARCH RESULTS:
-${JSON.stringify(industryResearch, null, 2)}
-
-## 🎯 WEBSITE REQUIREMENTS:
-- **Industry**: ${industry}
-- **Business Type**: ${businessType}
-- **Requested Features**: ${features.join(', ') || 'Standard website features'}
-
-## 🧠 INTELLIGENT WEBSITE CREATION:
-
-### 1. Technology Stack (Based on Industry Research):
-- Choose the optimal tech stack from competitor analysis
-- Consider scalability, performance, and maintenance requirements
-- Select modern frameworks and libraries
-
-### 2. Complete Website Structure:
-Generate a full website with:
-- **Homepage**: Hero section, services/features, testimonials, CTA
-- **About Page**: Company story, team, values
-- **Services/Products**: Detailed offerings with pricing
-- **Contact Page**: Contact form, location, business hours
-- **Navigation**: Responsive navbar with mobile menu
-- **Footer**: Links, social media, contact info
-
-### 3. Industry-Specific Features:
-Based on research, include:
-- **E-commerce**: Product catalog, shopping cart, checkout
-- **SaaS**: Dashboard, pricing plans, feature comparison
-- **Portfolio**: Project showcase, case studies, testimonials
-- **Business**: Services, testimonials, contact forms
-- **Blog/Content**: Article pages, categories, search
-
-### 4. Modern Design Implementation:
-- **Glass Morphism**: Backdrop blur effects and transparency
-- **Responsive Design**: Mobile-first approach
-- **Accessibility**: WCAG compliant
-- **Performance**: Optimized images and code
-- **SEO**: Proper meta tags and structure
-
-## 📋 OUTPUT FORMAT:
-Generate a JSON object with this exact structure:
-{
-  "explanation": "Brief description of what was created",
-  "actions": [
-    {
-      "action": "create",
-      "type": "directory",
-      "path": "/src/components"
-    },
-    {
-      "action": "create",
-      "type": "file",
-      "path": "/src/components/Navbar.jsx",
-      "content": "COMPLETE file content here"
-    }
-  ]
-}
-
-IMPORTANT DIRECTORY RULES:
-- Always create parent directories BEFORE creating files
-- Use "type": "directory" for folders, "type": "file" for files
-- Start all paths with /
-- Use forward slashes only
-- Create directories in hierarchical order (parent before child)
-
-## 🎨 DESIGN REQUIREMENTS:
-- **Color Scheme**: Based on industry research and modern trends
-- **Typography**: Clean, readable fonts with proper hierarchy
-- **Layout**: Modern grid system with proper spacing
-- **Animations**: Smooth transitions and micro-interactions
-- **Mobile**: Fully responsive with touch-friendly elements
-- **NO PLACEHOLDER IMAGES**: Do not include any placeholder image paths like "path-to-image.jpg"
-- **CSS-BASED DESIGN**: Use CSS gradients, patterns, or simple backgrounds instead of external images
-- **SELF-CONTAINED**: All assets should be inline or generated, no external dependencies
-
-Create the complete, industry-researched, production-ready website now:`;
-
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.3,
-        max_tokens: 8000
-    });
-
-    return JSON.parse(response.choices[0].message.content.trim());
+  return JSON.parse(response.choices[0].message.content.trim());
 };
 
 export const generateShellCommand = async (prompt: string): Promise<string> => {
-    const ai = getAI();
-    const fullPrompt = `You are an expert shell command assistant. A user wants to perform an action from the terminal. Based on their request, generate the corresponding shell command.
+  // Validate and sanitize the prompt
+  const validation = validatePrompt(prompt);
+  if (!validation.isValid) {
+    throw new Error(`Validation failed: ${validation.error}`);
+  }
+
+  const openai = await getAI();
+  const fullPrompt = `You are an expert shell command assistant. A user wants to perform an action from the terminal. Based on their request, generate the corresponding shell command.
 Only output the raw, executable command. Do not add any conversational text, explanations, or markdown formatting.
-User's request: "${prompt}"`;
+User's request: "${validation.sanitizedPrompt}"`;
 
-    const response = await ai.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: fullPrompt }]
-    });
+  const response = await openai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: [{ role: 'user', content: fullPrompt }]
+  });
 
-    return response.choices[0].message.content.trim();
+  return response.choices[0].message.content.trim();
 };

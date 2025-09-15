@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRemoteVM } from '../RemoteVMProvider.tsx';
+import { useIndexedDBFileSystem } from '../IndexedDBFileSystemProvider.tsx';
 import type { Directory, FileSystemNode, File } from '../types.ts';
 
 // Simple file system structure for RemoteVM
@@ -22,7 +22,7 @@ const createInitialFs = (): Directory => ({
 });
 
 export const useFileSystem = () => {
-    const { isConnected, readFile, writeFile, listDirectory, createDirectory, deleteFile } = useRemoteVM();
+    const { isConnected, readFile, writeFile, listDirectory, createDirectory, deleteFile } = useIndexedDBFileSystem();
     const [fs, setFs] = useState<Directory | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileContents = useRef(new Map<string, string>());
@@ -40,8 +40,8 @@ export const useFileSystem = () => {
         if (!isConnected) return;
 
         try {
-            // Send to backend
-            writeFile(path, content);
+            // Send to IndexedDB
+            await writeFile(path, content);
 
             // Update local cache
             fileContents.current.set(path, content);
@@ -75,10 +75,10 @@ export const useFileSystem = () => {
 
         try {
             if (type === 'file') {
-                writeFile(path, content);
+                await writeFile(path, content);
                 fileContents.current.set(path, content);
             } else {
-                createDirectory(path);
+                await createDirectory(path);
             }
 
             // Update local file system state
@@ -113,7 +113,7 @@ export const useFileSystem = () => {
         if (!isConnected) return;
 
         try {
-            deleteFile(path);
+            await deleteFile(path);
             fileContents.current.delete(path);
 
             // Update local file system state

@@ -1,3 +1,5 @@
+import authService from '../lib/auth';
+
 export interface WebSocketMessage {
     type: string;
     payload?: any;
@@ -42,10 +44,21 @@ class WebSocketClient {
         this.sessionId = sessionId;
     }
 
-    connect(): Promise<void> {
+    private getAuthToken(): string | null {
+        return authService.getToken();
+    }
+
+    connect(token?: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            const wsUrl = `ws://localhost:3001/session/${this.sessionId}`;
-            console.log('🔌 Connecting to WebSocket:', wsUrl);
+            // Use token from parameter or get from auth service
+            const authToken = token || this.getAuthToken();
+            if (!authToken) {
+                reject(new Error('Authentication token required for WebSocket connection'));
+                return;
+            }
+
+            const wsUrl = `ws://localhost:3001/session/${this.sessionId}?token=${encodeURIComponent(authToken)}`;
+            console.log('🔌 Connecting to WebSocket:', wsUrl.replace(/token=[^&]*/, 'token=***'));
 
             try {
                 this.ws = new WebSocket(wsUrl);
@@ -70,11 +83,18 @@ class WebSocketClient {
                 this.ws.onclose = (event) => {
                     console.log('🔌 WebSocket connection closed:', event.code, event.reason);
                     this.isConnected = false;
-                    this.attemptReconnect();
+
+                    // Only attempt reconnect for certain close codes
+                    if (event.code === 1006 || event.code === 1011 || event.code >= 4000) {
+                        this.attemptReconnect();
+                    } else {
+                        console.log('Connection closed with code:', event.code, '- not attempting reconnect');
+                    }
                 };
 
                 this.ws.onerror = (error) => {
                     console.error('❌ WebSocket error:', error);
+                    this.handleConnectionError(error);
                     reject(error);
                 };
 
@@ -96,19 +116,85 @@ class WebSocketClient {
     private attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.error('Max reconnection attempts reached');
+            this.handleMaxRetriesReached();
             return;
         }
 
         this.reconnectAttempts++;
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+        const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000); // Cap at 30 seconds
 
-        console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+        console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
         setTimeout(() => {
             this.connect().catch(error => {
                 console.error('Reconnection failed:', error);
+                // Don't attempt reconnect here - connect() will handle it if needed
             });
         }, delay);
+    }
+
+    private handleMaxRetriesReached() {
+        console.error('Max reconnection attempts reached. Entering offline mode.');
+        // Send error message to all handlers
+        const errorMessage = {
+            type: 'error',
+            message: 'Connection lost. Please check your internet connection and try refreshing the page.',
+            code: 'MAX_RETRIES_EXCEEDED'
+        };
+
+        this.messageHandlers.get('error')?.forEach(handler => handler(errorMessage));
+    }
+
+    // Enhanced error handling
+    private handleConnectionError(error: any) {
+        console.error('WebSocket connection error:', error);
+
+        const errorType = this.categorizeError(error);
+        const userFriendlyMessage = this.getUserFriendlyErrorMessage(errorType);
+
+        // Send error to all error handlers
+        const errorMessage = {
+            type: 'error',
+            message: userFriendlyMessage,
+            code: errorType,
+            originalError: error.message
+        };
+
+        this.messageHandlers.get('error')?.forEach(handler => handler(errorMessage));
+    }
+
+    private categorizeError(error: any): string {
+        const message = error.message?.toLowerCase() || '';
+
+        if (message.includes('authentication') || message.includes('token')) {
+            return 'AUTHENTICATION_ERROR';
+        }
+        if (message.includes('network') || message.includes('connection')) {
+            return 'NETWORK_ERROR';
+        }
+        if (message.includes('timeout')) {
+            return 'TIMEOUT_ERROR';
+        }
+        if (message.includes('server') || message.includes('500')) {
+            return 'SERVER_ERROR';
+        }
+
+        return 'UNKNOWN_ERROR';
+    }
+
+    private getUserFriendlyErrorMessage(errorType: string): string {
+        switch (errorType) {
+            case 'AUTHENTICATION_ERROR':
+                return 'Authentication failed. Please log in again.';
+            case 'NETWORK_ERROR':
+                return 'Network connection lost. Please check your internet connection.';
+            case 'TIMEOUT_ERROR':
+                return 'Connection timed out. The server may be busy.';
+            case 'SERVER_ERROR':
+                return 'Server error occurred. Please try again later.';
+            default:
+                return 'An unexpected error occurred. Please try refreshing the page.';
+        }
     }
 
     private handleMessage(data: any) {

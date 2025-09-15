@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  mominai-backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: mominai-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    volumes:
+      # Mount Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount workspace directory
+      - ./user-workspaces:/home/ide/users
+      # Mount logs directory
+      - ./logs:/app/logs
+    networks:
+      - mominai-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      - docker-host-setup
+
+  docker-host-setup:
+    image: alpine:latest
+    container_name: docker-host-setup
+    command: sh -c "echo 'Docker host setup complete'"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - mominai-network
+
+networks:
+  mominai-network:
+    driver: bridge
+    name: mominai-network
+
+volumes:
+  user-workspaces:
+    driver: local
+  logs:
+    driver: local

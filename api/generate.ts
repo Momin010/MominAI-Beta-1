@@ -1,6 +1,8 @@
 // /api/generate.ts
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { authenticateRequest } from "../lib/auth";
+import { createVercelAuthAwareRateLimit, rateLimiters } from "../lib/rateLimit";
 
 // Configure the Vercel nodejs runtime
 export const config = {
@@ -8,11 +10,44 @@ export const config = {
   maxDuration: 300, // Set timeout to 5 minutes
 };
 
+// Rate limiting for AI generation - stricter limits for unauthenticated users
+const aiRateLimit = createVercelAuthAwareRateLimit({
+  authenticated: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 20 // 20 requests per minute for authenticated users
+  },
+  unauthenticated: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 5 // 5 requests per minute for unauthenticated users
+  }
+});
+
 // The main handler for the serverless function
 export default async function handler(req: Request) {
+  // Apply rate limiting
+  const rateLimitResponse = await aiRateLimit(req);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   // Ensure the request is a POST request
   if (req.method !== 'POST') {
     return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  // Authenticate the request
+  const authResult = authenticateRequest(req);
+  if (!authResult) {
+    return new Response(
+      JSON.stringify({
+        error: 'Unauthorized',
+        message: 'Authentication required. Please provide a valid JWT token in Authorization header or API key in x-api-key header.'
+      }),
+      {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
   }
 
   // Check for the API key from environment variables
@@ -26,9 +61,44 @@ export default async function handler(req: Request) {
   try {
     // Parse the chat history from the request body
     const { history } = await req.json();
+    
+    // Track AI request usage (if user is authenticated)
+    if (authResult.userId) {
+      // In a real implementation, you would call the usage tracking service here
+      // usageTracking.recordUsage(authResult.userId, 'aiRequest', 1);
+      console.log(`AI request by user: ${authResult.userId}`);
+    }
 
     if (!history || !Array.isArray(history)) {
        return new Response("Invalid request body: 'history' array not found.", { status: 400 });
+    }
+
+    // Validate history content
+    const MAX_HISTORY_LENGTH = 50; // Limit number of messages
+    const MAX_MESSAGE_LENGTH = 5000; // 5KB per message
+
+    if (history.length > MAX_HISTORY_LENGTH) {
+      return new Response(`History too long. Maximum ${MAX_HISTORY_LENGTH} messages allowed.`, { status: 400 });
+    }
+
+    for (let i = 0; i < history.length; i++) {
+      const message = history[i];
+      if (!message || typeof message !== 'object' || !message.role || !message.text) {
+        return new Response(`Invalid message at index ${i}: missing role or text.`, { status: 400 });
+      }
+      if (message.role !== 'user' && message.role !== 'assistant') {
+        return new Response(`Invalid role at index ${i}: must be 'user' or 'assistant'.`, { status: 400 });
+      }
+      if (typeof message.text !== 'string') {
+        return new Response(`Invalid text at index ${i}: must be a string.`, { status: 400 });
+      }
+      if (message.text.length > MAX_MESSAGE_LENGTH) {
+        return new Response(`Message at index ${i} too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`, { status: 400 });
+      }
+      // Basic sanitization - remove script tags and other dangerous content
+      message.text = message.text.replace(/<script[^>]*>.*?<\/script>/gi, '');
+      message.text = message.text.replace(/javascript:/gi, '');
+      message.text = message.text.replace(/on\w+\s*=/gi, '');
     }
 
     // Initialize the Google GenAI client

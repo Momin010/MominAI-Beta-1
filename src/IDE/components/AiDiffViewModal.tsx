@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { FileAction, DiffLine } from '../types';
 import { useAI } from '../contexts/AIContext';
-import { useNotifications } from '../App';
+import { useNotifications } from '../hooks/useNotifications';
 import { generateDiff } from '../utils/diff';
 
 interface AiDiffViewModalProps {

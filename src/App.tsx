@@ -3,18 +3,66 @@
 // CRUSHING ALL COMPETITORS WITH SUPERIOR ARCHITECTURE
 
 import React, { useEffect, Suspense } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAppStore, usePerformanceStore, useKeyboardStore } from '@/stores/app-store'
+import { SubscriptionProvider } from './contexts/SubscriptionContext'
 
 // LAZY LOAD COMPONENTS FOR OPTIMAL PERFORMANCE
+const LandingPage = React.lazy(() => import('./components/LandingPage'))
 const Dashboard = React.lazy(() => import('./components/Dashboard'))
 const IDE = React.lazy(() => import('./IDE/App'))
 const CheckoutPage = React.lazy(() => import('./components/CheckoutPage'))
 const Loader = React.lazy(() => import('./components/Loader'))
 
+// ROUTE PERSISTENCE COMPONENT
+const RoutePersistence: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const location = useLocation()
+
+  useEffect(() => {
+    // Save current route to localStorage
+    localStorage.setItem('lastRoute', location.pathname + location.search)
+  }, [location])
+
+  return <>{children}</>
+}
+
+// APP ROUTER WITH PERSISTENCE
+const AppRouter: React.FC = () => {
+  const [isInitialLoad, setIsInitialLoad] = React.useState(true)
+  const [redirectPath, setRedirectPath] = React.useState<string | null>(null)
+
+  useEffect(() => {
+    // On initial load, check for saved route
+    if (isInitialLoad) {
+      const lastRoute = localStorage.getItem('lastRoute')
+      if (lastRoute && lastRoute !== '/' && lastRoute !== '/?') {
+        setRedirectPath(lastRoute)
+      }
+      setIsInitialLoad(false)
+    }
+  }, [isInitialLoad])
+
+  // If we have a redirect path, navigate to it
+  if (redirectPath) {
+    window.location.href = redirectPath
+    return <LoadingScreen />
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/dashboard" element={<Dashboard onLogout={() => {}} />} />
+      <Route path="/ide" element={<IDE onLogout={() => {}} />} />
+      <Route path="/checkout" element={<CheckoutPage plan={null} />} />
+      <Route path="/loading" element={<Loader />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
+
 // LOADING COMPONENT
 const LoadingScreen: React.FC = () => (
-  <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+  <div className="flex items-center justify-center min-h-screen bg-black text-white">
     <div className="text-center">
       <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto mb-4"></div>
       <h2 className="text-2xl font-bold mb-2">MominAI Revolution</h2>
@@ -44,7 +92,7 @@ class ErrorBoundary extends React.Component<
   override render() {
     if (this.state.hasError) {
       return (
-        <div className="flex items-center justify-center min-h-screen bg-red-900 text-white">
+        <div className="flex items-center justify-center min-h-screen bg-red-900/90 text-white">
           <div className="text-center">
             <h1 className="text-4xl font-bold mb-4">Oops! Something went wrong</h1>
             <p className="text-red-200 mb-4">
@@ -152,19 +200,17 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <div className="app min-h-screen">
-          <Suspense fallback={<LoadingScreen />}>
-            <Routes>
-              <Route path="/" element={<Dashboard onLogout={() => {}} />} />
-              <Route path="/ide" element={<IDE onLogout={() => {}} />} />
-              <Route path="/checkout" element={<CheckoutPage plan={null} />} />
-              <Route path="/loading" element={<Loader />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </div>
-      </Router>
+      <SubscriptionProvider>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <RoutePersistence>
+            <div className="app min-h-screen">
+              <Suspense fallback={<LoadingScreen />}>
+                <AppRouter />
+              </Suspense>
+            </div>
+          </RoutePersistence>
+        </Router>
+      </SubscriptionProvider>
     </ErrorBoundary>
   )
 }

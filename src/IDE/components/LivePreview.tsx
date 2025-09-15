@@ -1,11 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useRemoteVM } from '../RemoteVMProvider';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useVMProvider } from '../VMProviderSwitcher';
 import { getWebSocketClient } from '../../services/websocketClient';
+import { useFileSystem } from '../hooks/useFileSystem';
 import { Icons } from './Icon';
 
 interface LivePreviewProps {
     isVisible: boolean;
     onToggle?: () => void;
+    automationState?: {
+        isInstalling: boolean;
+        isStartingDev: boolean;
+        installProgress: number;
+        devProgress: number;
+        currentStep: string;
+        error: string | null;
+    };
 }
 
 interface DevServer {
@@ -13,102 +22,34 @@ interface DevServer {
     port: number;
     framework: string;
     status: 'starting' | 'running' | 'stopped';
+    proxyUrl?: string;
 }
 
-const LivePreview: React.FC<LivePreviewProps> = ({ isVisible, onToggle }) => {
-    const [devServers, setDevServers] = useState<DevServer[]>([]);
+const LivePreview: React.FC<LivePreviewProps> = ({ isVisible, onToggle, automationState }) => {
     const [activeServer, setActiveServer] = useState<DevServer | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+    const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    const { onTerminalOutput } = useRemoteVM();
+    const { devServers, onTerminalOutput } = useVMProvider();
+    const { fs } = useFileSystem();
     const wsClient = getWebSocketClient();
 
-    // Detect dev server URLs from terminal output
-    const detectDevServer = (output: string) => {
-        const urlPatterns = [
-            // Vite
-            /Local:\s+(http:\/\/localhost:\d+)/i,
-            /Network:\s+(http:\/\/[\d\.]+:\d+)/i,
-            // React
-            /Local:\s+(http:\/\/localhost:\d+)/i,
-            // Next.js
-            /ready\s+-\s+started\s+server\s+on\s+(http:\/\/localhost:\d+)/i,
-            // Generic localhost URLs
-            /(http:\/\/localhost:\d+)/g,
-            /(http:\/\/127\.0\.0\.1:\d+)/g,
-            /(http:\/\/[\d\.]+:\d+)/g
-        ];
+    // Only use WebContainer-managed dev servers
+    const allServers = React.useMemo(() => {
+        return devServers;
+    }, [devServers]);
 
-        for (const pattern of urlPatterns) {
-            const matches = output.match(pattern);
-            if (matches) {
-                for (const match of matches) {
-                    const url = match.trim();
-                    const portMatch = url.match(/:(\d+)/);
-                    if (portMatch) {
-                        const port = parseInt(portMatch[1]);
-                        const framework = detectFramework(output);
-
-                        const newServer: DevServer = {
-                            url,
-                            port,
-                            framework,
-                            status: 'running'
-                        };
-
-                        setDevServers(prev => {
-                            const existing = prev.find(s => s.url === url);
-                            if (!existing) {
-                                console.log('🎯 Detected dev server:', newServer);
-                                return [...prev, newServer];
-                            }
-                            return prev;
-                        });
-
-                        // Auto-select first server
-                        if (!activeServer) {
-                            setActiveServer(newServer);
-                        }
-                    }
-                }
-            }
-        }
-    };
-
-    const detectFramework = (output: string): string => {
-        if (output.includes('VITE')) return 'Vite';
-        if (output.includes('React')) return 'React';
-        if (output.includes('Next.js')) return 'Next.js';
-        if (output.includes('Vue')) return 'Vue';
-        if (output.includes('Angular')) return 'Angular';
-        return 'Unknown';
-    };
-
-    // Listen for terminal output to detect dev servers
+    // Update active server when servers change
     useEffect(() => {
-        const handleTerminalOutput = (data: any) => {
-            console.log('🔍 LivePreview received terminal output:', data);
-            if (data && data.data) {
-                detectDevServer(data.data);
-            } else if (typeof data === 'string') {
-                detectDevServer(data);
-            }
-        };
-
-        // Subscribe to terminal output from RemoteVMProvider
-        if (onTerminalOutput) {
-            onTerminalOutput(handleTerminalOutput);
+        if (allServers.length > 0 && !activeServer) {
+            setActiveServer(allServers[0]);
+        } else if (allServers.length === 0) {
+            setActiveServer(null);
         }
-
-        // Also listen directly to WebSocket for container_output messages
-        wsClient.onMessage('container_output', handleTerminalOutput);
-
-        return () => {
-            // Cleanup WebSocket listener
-            wsClient.offMessage('container_output', handleTerminalOutput);
-        };
-    }, [onTerminalOutput, wsClient]);
+    }, [allServers, activeServer]);
 
     const handleServerSelect = (server: DevServer) => {
         setActiveServer(server);
@@ -118,19 +59,68 @@ const LivePreview: React.FC<LivePreviewProps> = ({ isVisible, onToggle }) => {
         setTimeout(() => setIsLoading(false), 2000);
     };
 
+    // Update active server when selection changes
+    useEffect(() => {
+        if (activeServer && !allServers.find(s => s.url === activeServer.url)) {
+            // Active server is no longer available, select first available
+            if (allServers.length > 0) {
+                setActiveServer(allServers[0]);
+            } else {
+                setActiveServer(null);
+            }
+        }
+    }, [allServers, activeServer]);
+
     const handleOpenInNewTab = () => {
         if (activeServer) {
             window.open(activeServer.url, '_blank');
         }
     };
 
-    const handleRefresh = () => {
+    const handleRefresh = useCallback(() => {
         if (iframeRef.current) {
             setIsLoading(true);
             iframeRef.current.src = iframeRef.current.src;
+            setLastRefreshTime(new Date());
             setTimeout(() => setIsLoading(false), 2000);
         }
-    };
+    }, []);
+
+    // Auto-refresh functionality
+    const debouncedRefresh = useCallback(() => {
+        if (!autoRefreshEnabled || !activeServer) return;
+
+        if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+        }
+
+        refreshTimeoutRef.current = setTimeout(() => {
+            console.log('Auto-refreshing preview due to file changes');
+            handleRefresh();
+        }, 1500); // Debounce auto-refresh by 1.5 seconds
+    }, [autoRefreshEnabled, activeServer, handleRefresh]);
+
+    // Monitor file system changes for auto-refresh
+    useEffect(() => {
+        if (!fs || !autoRefreshEnabled) return;
+
+        // This is a simplified approach - in a real implementation,
+        // you'd want to listen to specific file change events
+        const checkForChanges = () => {
+            // Trigger auto-refresh when file system changes are detected
+            debouncedRefresh();
+        };
+
+        // For now, we'll use a polling approach (could be improved with WebSocket events)
+        const interval = setInterval(checkForChanges, 2000);
+
+        return () => {
+            clearInterval(interval);
+            if (refreshTimeoutRef.current) {
+                clearTimeout(refreshTimeoutRef.current);
+            }
+        };
+    }, [fs, autoRefreshEnabled, debouncedRefresh]);
 
     if (!isVisible) {
         return null;
@@ -156,22 +146,30 @@ const LivePreview: React.FC<LivePreviewProps> = ({ isVisible, onToggle }) => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {devServers.length > 1 && (
+                    {allServers.length > 1 && (
                         <select
                             value={activeServer?.url || ''}
                             onChange={(e) => {
-                                const server = devServers.find(s => s.url === e.target.value);
+                                const server = allServers.find(s => s.url === e.target.value);
                                 if (server) handleServerSelect(server);
                             }}
                             className="text-xs px-2 py-1 border border-gray-300 rounded"
                         >
-                            {devServers.map(server => (
+                            {allServers.map(server => (
                                 <option key={server.url} value={server.url}>
                                     {server.framework} - {server.url}
                                 </option>
                             ))}
                         </select>
                     )}
+
+                    <button
+                        onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                        className={`p-1.5 rounded ${autoRefreshEnabled ? 'bg-green-100 text-green-600' : 'hover:bg-gray-200 text-gray-600'}`}
+                        title={autoRefreshEnabled ? 'Disable Auto-Refresh' : 'Enable Auto-Refresh'}
+                    >
+                        <Icons.Settings className={`w-4 h-4 ${autoRefreshEnabled ? 'animate-spin' : ''}`} />
+                    </button>
 
                     <button
                         onClick={handleRefresh}
@@ -214,9 +212,89 @@ const LivePreview: React.FC<LivePreviewProps> = ({ isVisible, onToggle }) => {
                                 </div>
                             </div>
                         )}
+
+                        {/* Automation Progress Overlay */}
+                        {(automationState?.isInstalling || automationState?.isStartingDev) && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-purple-500/20 to-blue-500/20 backdrop-blur-sm z-20">
+                                <div className="bg-white/90 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
+                                    <div className="text-center">
+                                        {/* Fun animated icons */}
+                                        <div className="mb-6 relative">
+                                            {automationState.isInstalling ? (
+                                                <div className="flex justify-center space-x-2">
+                                                    <div className="w-8 h-8 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+                                                    <div className="w-8 h-8 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                    <div className="w-8 h-8 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex justify-center">
+                                                    <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-orange-500 rounded-full animate-pulse flex items-center justify-center">
+                                                        <Icons.Play className="w-6 h-6 text-white" />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <h3 className="text-xl font-bold text-gray-800 mb-2">
+                                            {automationState.isInstalling ? 'Installing Dependencies' : 'Starting Dev Server'}
+                                        </h3>
+
+                                        <p className="text-gray-600 mb-6 text-sm">
+                                            {automationState.currentStep}
+                                        </p>
+
+                                        {/* Progress bars */}
+                                        <div className="space-y-3">
+                                            {automationState.isInstalling && (
+                                                <div>
+                                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                                        <span>Installing packages</span>
+                                                        <span>{automationState.installProgress}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                                        <div
+                                                            className="bg-gradient-to-r from-green-400 to-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
+                                                            style={{ width: `${automationState.installProgress}%` }}
+                                                        ></div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {automationState.isStartingDev && (
+                                                <div>
+                                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                                        <span>Starting server</span>
+                                                        <span>{automationState.devProgress}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                                        <div
+                                                            className="bg-gradient-to-r from-pink-400 to-orange-500 h-2 rounded-full transition-all duration-500 ease-out"
+                                                            style={{ width: `${automationState.devProgress}%` }}
+                                                        ></div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Fun loading dots */}
+                                        <div className="mt-6 flex justify-center space-x-1">
+                                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+                                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                            <div className="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                                        </div>
+
+                                        {automationState.error && (
+                                            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                                <p className="text-red-700 text-sm">{automationState.error}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         <iframe
                             ref={iframeRef}
-                            src={activeServer.url}
+                            src={activeServer.proxyUrl || activeServer.url}
                             className="w-full h-full border-none"
                             onLoad={() => setIsLoading(false)}
                             onError={() => setIsLoading(false)}
@@ -241,8 +319,18 @@ const LivePreview: React.FC<LivePreviewProps> = ({ isVisible, onToggle }) => {
             {activeServer && (
                 <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-600">
                     <div className="flex justify-between items-center">
-                        <span>Previewing: {activeServer.url}</span>
-                        <span>{devServers.length} server{devServers.length !== 1 ? 's' : ''} detected</span>
+                        <span>Previewing: {activeServer.proxyUrl || activeServer.url}</span>
+                        <div className="flex items-center gap-2">
+                            {activeServer.proxyUrl && (
+                                <span className="text-green-600">✓ Proxied</span>
+                            )}
+                            {lastRefreshTime && (
+                                <span className="text-blue-600">
+                                    Last refresh: {lastRefreshTime.toLocaleTimeString()}
+                                </span>
+                            )}
+                            <span>{allServers.length} MominAI server{allServers.length !== 1 ? 's' : ''} running</span>
+                        </div>
                     </div>
                 </div>
             )}

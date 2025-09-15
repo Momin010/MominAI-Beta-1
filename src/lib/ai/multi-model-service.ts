@@ -38,7 +38,7 @@ export interface AIResponse {
   cached: boolean
 }
 
-class MultiModelAIService {
+export class MultiModelAIService {
   private openai: OpenAI | null = null
   private anthropic: Anthropic | null = null
   private google: GoogleGenerativeAI | null = null
@@ -58,7 +58,7 @@ class MultiModelAIService {
         apiKey: process.env.OPENAI_API_KEY,
         dangerouslyAllowBrowser: true
       })
-      
+
       this.providers.set('openai', {
         id: 'openai',
         name: 'OpenAI',
@@ -68,6 +68,27 @@ class MultiModelAIService {
         rateLimits: {
           requestsPerMinute: 500,
           tokensPerMinute: 200000
+        }
+      })
+    }
+
+    // OpenRouter Provider (using OpenAI-compatible API)
+    if (process.env.VITE_OPENROUTER_API_KEY) {
+      this.openai = new OpenAI({
+        apiKey: process.env.VITE_OPENROUTER_API_KEY,
+        baseURL: 'https://openrouter.ai/api/v1',
+        dangerouslyAllowBrowser: true
+      })
+
+      this.providers.set('openrouter', {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        models: ['gpt-4o', 'claude-3.5-sonnet', 'gemini-2.0-flash'],
+        apiKey: process.env.VITE_OPENROUTER_API_KEY,
+        enabled: true,
+        rateLimits: {
+          requestsPerMinute: 100,
+          tokensPerMinute: 100000
         }
       })
     }
@@ -168,52 +189,181 @@ class MultiModelAIService {
     return true
   }
 
-  // MAIN AI COMPLETION METHOD
+  // 🚀 REVOLUTIONARY MULTI-MODAL REASONING SYSTEM
+  // Compare responses from ALL providers and select the BEST code
   async complete(request: AIRequest): Promise<AIResponse> {
     const startTime = Date.now()
-    
-    // Auto-select model if not specified
-    if (!request.model) {
-      request.model = this.selectOptimalModel(request)
-    }
-    
+
     // Check cache first
     const cacheKey = this.getCacheKey(request)
     const cached = this.cache.get(cacheKey)
     if (cached) {
       return { ...cached, cached: true }
     }
-    
-    // Route to appropriate provider
+
+    // If specific model requested, use single provider
+    if (request.model) {
+      return this.completeSingleProvider(request, startTime, cacheKey)
+    }
+
+    // 🚀 MULTI-MODAL MODE: Compare all providers
+    return this.completeMultiModal(request, startTime, cacheKey)
+  }
+
+  private async completeSingleProvider(request: AIRequest, startTime: number, cacheKey: string): Promise<AIResponse> {
     let response: AIResponse
-    
+
     switch (request.model) {
       case 'gpt-4o':
       case 'gpt-4o-mini':
         response = await this.completeOpenAI(request)
         break
-        
+
       case 'claude-3.5-sonnet':
       case 'claude-3-haiku':
         response = await this.completeAnthropic(request)
         break
-        
+
       case 'gemini-2.0-flash':
       case 'gemini-1.5-pro':
         response = await this.completeGoogle(request)
         break
-        
+
       default:
         throw new Error(`Unsupported model: ${request.model}`)
     }
-    
+
     response.duration = Date.now() - startTime
     response.cached = false
-    
-    // Cache the response
     this.cache.set(cacheKey, response)
-    
+
     return response
+  }
+
+  // 🚀 MULTI-MODAL REASONING: Compare ALL providers and pick BEST
+  private async completeMultiModal(request: AIRequest, startTime: number, cacheKey: string): Promise<AIResponse> {
+    const responses: Array<{ response: AIResponse; score: number; reasoning: string }> = []
+    const errors: string[] = []
+
+    // Get responses from all available providers
+    const providers = [
+      { name: 'openai', models: ['gpt-4o', 'gpt-4o-mini'] },
+      { name: 'anthropic', models: ['claude-3.5-sonnet'] },
+      { name: 'google', models: ['gemini-2.0-flash'] }
+    ]
+
+    // Run all providers in parallel for speed
+    const promises = providers.map(async (provider) => {
+      try {
+        if (!this.providers.has(provider.name)) return null
+
+        const providerRequest = { ...request, model: provider.models[0] as AIModel }
+        let response: AIResponse
+
+        switch (provider.name) {
+          case 'openai':
+            response = await this.completeOpenAI(providerRequest)
+            break
+          case 'anthropic':
+            response = await this.completeAnthropic(providerRequest)
+            break
+          case 'google':
+            response = await this.completeGoogle(providerRequest)
+            break
+          default:
+            return null
+        }
+
+        // Score the response based on multiple criteria
+        const score = this.scoreResponse(response, request)
+        const reasoning = this.generateScoringReasoning(response, score, request)
+
+        return { response, score, reasoning }
+      } catch (error) {
+        errors.push(`${provider.name}: ${error.message}`)
+        return null
+      }
+    })
+
+    const results = await Promise.allSettled(promises)
+
+    // Collect successful responses
+    results.forEach(result => {
+      if (result.status === 'fulfilled' && result.value) {
+        responses.push(result.value)
+      }
+    })
+
+    if (responses.length === 0) {
+      throw new Error(`All providers failed: ${errors.join(', ')}`)
+    }
+
+    // Sort by score (highest first)
+    responses.sort((a, b) => b.score - a.score)
+
+    const bestResponse = responses[0].response
+    bestResponse.duration = Date.now() - startTime
+
+    // Add multi-modal metadata to the response
+    const enhancedResponse = {
+      ...bestResponse,
+      cached: false,
+      multiModal: {
+        totalResponses: responses.length,
+        scores: responses.map(r => ({ model: r.response.model, score: r.score, reasoning: r.reasoning })),
+        bestScore: responses[0].score,
+        comparisonTime: Date.now() - startTime
+      }
+    }
+
+    // Cache the best response
+    this.cache.set(cacheKey, bestResponse)
+
+    return bestResponse
+  }
+
+  // 🧠 INTELLIGENT SCORING SYSTEM
+  private scoreResponse(response: AIResponse, request: AIRequest): number {
+    let score = 0
+    const content = response.content.toLowerCase()
+
+    // Length appropriateness (prefer substantial but not verbose)
+    const wordCount = content.split(' ').length
+    if (wordCount > 10 && wordCount < 500) score += 20
+    else if (wordCount >= 500) score += 10
+
+    // Code quality indicators
+    if (content.includes('```') && content.includes('function')) score += 25
+    if (content.includes('const') || content.includes('let') || content.includes('var')) score += 15
+    if (content.includes('error') || content.includes('catch')) score += 10
+
+    // Completeness indicators
+    if (content.includes('example') || content.includes('usage')) score += 15
+    if (content.includes('import') || content.includes('export')) score += 10
+
+    // Technical accuracy
+    if (content.includes('async') || content.includes('await')) score += 10
+    if (content.includes('try') || content.includes('catch')) score += 10
+
+    // Response time bonus (faster is better)
+    if (response.duration < 2000) score += 15
+    else if (response.duration < 5000) score += 10
+
+    // Token efficiency bonus
+    if (response.usage.totalTokens < 1000) score += 10
+
+    return Math.min(score, 100) // Cap at 100
+  }
+
+  private generateScoringReasoning(response: AIResponse, score: number, request: AIRequest): string {
+    const reasons = []
+
+    if (response.content.includes('```')) reasons.push('Contains code examples')
+    if (response.content.length > 100) reasons.push('Substantial response')
+    if (response.duration < 3000) reasons.push('Fast response time')
+    if (response.usage.totalTokens < 1500) reasons.push('Token efficient')
+
+    return reasons.join(', ') || 'Standard quality response'
   }
 
   // STREAMING COMPLETION

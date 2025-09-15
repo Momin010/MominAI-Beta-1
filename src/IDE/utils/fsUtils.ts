@@ -20,3 +20,20 @@ export const getAllFiles = (node: FileSystemNode, currentPath: string): { path: 
     
     return files;
 };
+
+/**
+ * Recursively analyzes the directory structure and returns a tree-like string representation.
+ */
+export const analyzeDirectoryStructure = (node: FileSystemNode, prefix = ''): string => {
+    let result = prefix + node.name + '\n';
+    if (node.type === 'directory' && node.children) {
+        const childNames = Object.keys(node.children);
+        childNames.forEach((name, index) => {
+            const child = node.children![name];
+            const isLast = index === childNames.length - 1;
+            const newPrefix = prefix + (isLast ? '└── ' : '├── ');
+            result += analyzeDirectoryStructure(child, newPrefix);
+        });
+    }
+    return result;
+};

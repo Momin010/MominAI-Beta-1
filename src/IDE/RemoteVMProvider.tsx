@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { getWebSocketClient, disconnectWebSocketClient } from '../services/websocketClient';
+import authService from '../lib/auth';
 
 interface RemoteVMContextType {
     isConnected: boolean;
@@ -41,13 +42,34 @@ interface RemoteVMProviderProps {
 
 export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
     children,
-    sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    sessionId: initialSessionId
 }) => {
+    // Generate or retrieve session ID
+    const [sessionId] = useState(() => {
+        const stored = localStorage.getItem('remote_session_id');
+        if (stored && initialSessionId) {
+            // Use provided sessionId if available
+            return initialSessionId;
+        }
+        if (stored) {
+            return stored;
+        }
+        const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem('remote_session_id', newSessionId);
+        return newSessionId;
+    });
+
     const [isConnected, setIsConnected] = useState(false);
     const [serverUrl, setServerUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [terminals] = useState(new Map());
     const [processes] = useState(new Map());
+
+    // Callback arrays for event handling
+    const [terminalOutputCallbacks] = useState<Array<(data: any) => void>>([]);
+    const [processOutputCallbacks] = useState<Array<(data: any) => void>>([]);
+    const [fileContentCallbacks] = useState<Array<(data: any) => void>>([]);
+    const [directoryListingCallbacks] = useState<Array<(data: any) => void>>([]);
 
     const wsClient = getWebSocketClient(sessionId);
 
@@ -128,7 +150,14 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
         try {
             setError(null);
             console.log('🔌 Attempting to connect to Remote VM...');
-            await wsClient.connect();
+
+            // Check if user is authenticated
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                throw new Error('Authentication required. Please log in to use premium features.');
+            }
+
+            await wsClient.connect(token);
             console.log('✅ Successfully connected to Remote VM');
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to connect to Remote VM';
@@ -138,12 +167,31 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
         }
     }, [wsClient]);
 
-    const disconnect = useCallback(() => {
+    const disconnect = useCallback(async () => {
+        try {
+            // Clean up remote session
+            const token = authService.getToken();
+            if (token && sessionId) {
+                await fetch(`http://localhost:3001/api/containers/${sessionId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+            }
+        } catch (error) {
+            console.error('Error cleaning up remote session:', error);
+        }
+
+        // Disconnect WebSocket
         disconnectWebSocketClient();
         setIsConnected(false);
         setServerUrl(null);
         setError(null);
-    }, []);
+
+        // Clear session data
+        localStorage.removeItem('remote_session_id');
+    }, [sessionId]);
 
     const createTerminal = useCallback((terminalId: string) => {
         // Terminal is automatically created when container starts
@@ -158,16 +206,67 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
         wsClient.stopProcess(processId);
     }, [wsClient]);
 
-    const readFile = useCallback((path: string) => {
-        wsClient.readFile(path);
-    }, [wsClient]);
+    const readFile = useCallback(async (path: string) => {
+        try {
+            const token = authService.getToken();
+            if (!token) throw new Error('Authentication required');
 
-    const writeFile = useCallback((path: string, content: string) => {
-        wsClient.writeFile(path, content);
-    }, [wsClient]);
+            const response = await fetch(`http://localhost:3001/api/containers/${sessionId}/files/${encodeURIComponent(path)}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                },
+            });
 
-    const listDirectory = useCallback((path: string) => {
-        wsClient.listDirectory(path);
+            if (!response.ok) {
+                throw new Error(`Failed to read file: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            // Notify listeners
+            fileContentCallbacks.forEach(callback => callback({ path, content: data.content }));
+        } catch (error) {
+            console.error('Error reading file:', error);
+            setError(`Failed to read file: ${error.message}`);
+        }
+    }, [sessionId, fileContentCallbacks]);
+
+    const writeFile = useCallback(async (path: string, content: string) => {
+        try {
+            const token = authService.getToken();
+            if (!token) throw new Error('Authentication required');
+
+            const response = await fetch(`http://localhost:3001/api/containers/${sessionId}/files/${encodeURIComponent(path)}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ content }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to write file: ${response.statusText}`);
+            }
+
+            console.log('File written successfully:', path);
+        } catch (error) {
+            console.error('Error writing file:', error);
+            setError(`Failed to write file: ${error.message}`);
+        }
+    }, [sessionId]);
+
+    const listDirectory = useCallback(async (path: string) => {
+        try {
+            const token = authService.getToken();
+            if (!token) throw new Error('Authentication required');
+
+            // For directory listing, we'll use WebSocket for real-time updates
+            // but also provide a REST fallback
+            wsClient.listDirectory(path);
+        } catch (error) {
+            console.error('Error listing directory:', error);
+            setError(`Failed to list directory: ${error.message}`);
+        }
     }, [wsClient]);
 
     const createDirectory = useCallback((path: string) => {
@@ -181,6 +280,23 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
     const startDevServer = useCallback((cwd = '/tmp', port = 5173) => {
         wsClient.startDevServer(cwd, port);
     }, [wsClient]);
+
+    // Event callback registration methods
+    const onTerminalOutput = useCallback((callback: (data: any) => void) => {
+        terminalOutputCallbacks.push(callback);
+    }, [terminalOutputCallbacks]);
+
+    const onProcessOutput = useCallback((callback: (data: any) => void) => {
+        processOutputCallbacks.push(callback);
+    }, [processOutputCallbacks]);
+
+    const onFileContent = useCallback((callback: (data: any) => void) => {
+        fileContentCallbacks.push(callback);
+    }, [fileContentCallbacks]);
+
+    const onDirectoryListing = useCallback((callback: (data: any) => void) => {
+        directoryListingCallbacks.push(callback);
+    }, [directoryListingCallbacks]);
 
     const value: RemoteVMContextType = {
         isConnected,
@@ -199,10 +315,10 @@ export const RemoteVMProvider: React.FC<RemoteVMProviderProps> = ({
         createDirectory,
         deleteFile,
         startDevServer,
-        onTerminalOutput: (callback) => wsClient.onMessage('terminal_output', callback),
-        onProcessOutput: (callback) => wsClient.onMessage('process_output', callback),
-        onFileContent: (callback) => wsClient.onMessage('file_content', callback),
-        onDirectoryListing: (callback) => wsClient.onMessage('directory_listing', callback),
+        onTerminalOutput,
+        onProcessOutput,
+        onFileContent,
+        onDirectoryListing,
     };
 
     return (

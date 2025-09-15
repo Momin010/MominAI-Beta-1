@@ -8,34 +8,34 @@
 /* CSS VARIABLES FOR THEMING - GLASS MORPHISM */
 @layer base {
   :root {
-    --background: 60 27% 91%;
-    --foreground: 210 40% 98%;
-    --card: 0 0% 100%;
-    --card-foreground: 210 40% 98%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 210 40% 98%;
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 100%;
     --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 0 0% 100%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 0 0% 100%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 65%;
     --accent: 217.2 91.2% 59.8%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 0 0% 90%;
-    --input: 0 0% 100%;
-    --ring: 224.3 76.3% 94.1%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 20%;
+    --input: 0 0% 15%;
+    --ring: 217.2 91.2% 59.8%;
     --radius: 0.75rem;
 
     /* GLASS MORPHISM VARIABLES */
-    --glass-bg: rgba(255, 255, 255, 0.08);
-    --glass-border: rgba(255, 255, 255, 0.15);
-    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-    --glass-bg-strong: rgba(255, 255, 255, 0.12);
-    --glass-bg-light: rgba(255, 255, 255, 0.05);
-    --glass-hover: rgba(255, 255, 255, 0.15);
+    --glass-bg: rgba(0, 0, 0, 0.3);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    --glass-bg-strong: rgba(0, 0, 0, 0.5);
+    --glass-bg-light: rgba(0, 0, 0, 0.2);
+    --glass-hover: rgba(255, 255, 255, 0.1);
   }
 
   .light {
@@ -72,73 +72,127 @@
       font-feature-settings: "rlig" 1, "calt" 1;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-      background-image: url('https://i.pinimg.com/736x/2b/49/22/2b492229bd247aa80340461018673d29.jpg');
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
-      background-attachment: fixed;
       min-height: 100vh;
-      background-color: #f5f5dc; /* Fallback cream color */
+      position: relative;
+      overflow-x: hidden;
+  }
+  
+  /* STUNNING ULTRA-STRONG AURORA BACKGROUND EFFECT */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: 
+      /* Intense aurora curtains */
+      radial-gradient(ellipse 150% 100% at 10% 20%, rgba(0, 255, 150, 0.8) 0%, rgba(0, 255, 150, 0.4) 25%, transparent 60%),
+      radial-gradient(ellipse 120% 80% at 90% 30%, rgba(64, 224, 255, 0.9) 0%, rgba(64, 224, 255, 0.5) 30%, transparent 65%),
+      radial-gradient(ellipse 180% 120% at 50% 10%, rgba(255, 0, 200, 0.7) 0%, rgba(255, 0, 200, 0.3) 35%, transparent 70%),
+      radial-gradient(ellipse 140% 90% at 20% 80%, rgba(138, 43, 226, 0.8) 0%, rgba(138, 43, 226, 0.4) 40%, transparent 75%),
+      radial-gradient(ellipse 160% 110% at 80% 70%, rgba(255, 105, 180, 0.6) 0%, rgba(255, 105, 180, 0.3) 45%, transparent 80%),
+      radial-gradient(ellipse 200% 150% at 30% 60%, rgba(0, 255, 255, 0.5) 0%, rgba(0, 255, 255, 0.2) 50%, transparent 85%),
+      /* Dancing aurora bands */
+      linear-gradient(90deg, transparent 0%, rgba(0, 255, 150, 0.3) 20%, rgba(64, 224, 255, 0.4) 40%, rgba(255, 0, 200, 0.3) 60%, rgba(138, 43, 226, 0.4) 80%, transparent 100%),
+      linear-gradient(45deg, transparent 0%, rgba(255, 105, 180, 0.2) 25%, rgba(0, 255, 255, 0.3) 50%, rgba(255, 0, 200, 0.2) 75%, transparent 100%),
+      /* Deep space foundation */
+      radial-gradient(ellipse at center, rgba(15, 5, 35, 0.9) 0%, rgba(5, 0, 20, 0.95) 40%, #000000 80%),
+      /* Final cosmic overlay */
+      linear-gradient(135deg, #0a0015 0%, #1a0530 20%, #2d1055 40%, #150025 60%, #0f0520 80%, #000000 100%);
+    z-index: -10;
+    animation: aurora-move 15s ease-in-out infinite, aurora-intensity 8s ease-in-out infinite alternate;
+  }
+  
+  /* INTENSE AURORA ANIMATIONS */
+  @keyframes aurora-move {
+    0%, 100% {
+      transform: translateX(0) translateY(0) scale(1) rotate(0deg);
+      filter: hue-rotate(0deg) brightness(1.2) saturate(1.5) contrast(1.1);
+    }
+    25% {
+      transform: translateX(-3%) translateY(-2%) scale(1.05) rotate(1deg);
+      filter: hue-rotate(60deg) brightness(1.4) saturate(1.8) contrast(1.2);
+    }
+    50% {
+      transform: translateX(2%) translateY(3%) scale(0.95) rotate(-1deg);
+      filter: hue-rotate(-40deg) brightness(1.6) saturate(2.1) contrast(1.3);
+    }
+    75% {
+      transform: translateX(3%) translateY(-1%) scale(1.08) rotate(0.5deg);
+      filter: hue-rotate(90deg) brightness(1.3) saturate(1.7) contrast(1.15);
+    }
+  }
+  
+  @keyframes aurora-intensity {
+    0% {
+      opacity: 0.8;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.9;
+    }
+  }
+  
+  /* MAGICAL AURORA PARTICLES & STARDUST */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+      /* Bright aurora particles */
+      radial-gradient(2px 2px at 15% 25%, rgba(0, 255, 150, 1), transparent),
+      radial-gradient(1px 1px at 35% 65%, rgba(64, 224, 255, 0.9), transparent),
+      radial-gradient(3px 3px at 85% 15%, rgba(255, 0, 200, 0.8), transparent),
+      radial-gradient(1px 1px at 65% 85%, rgba(138, 43, 226, 0.9), transparent),
+      radial-gradient(2px 2px at 5% 55%, rgba(255, 105, 180, 0.7), transparent),
+      radial-gradient(1px 1px at 75% 35%, rgba(0, 255, 255, 0.8), transparent),
+      /* Cosmic stardust */
+      radial-gradient(0.5px 0.5px at 25% 45%, rgba(255, 255, 255, 1), transparent),
+      radial-gradient(0.5px 0.5px at 55% 75%, rgba(255, 255, 255, 0.8), transparent),
+      radial-gradient(0.5px 0.5px at 95% 55%, rgba(255, 255, 255, 0.6), transparent),
+      radial-gradient(1px 1px at 45% 15%, rgba(255, 255, 255, 0.9), transparent);
+    background-size: 300px 300px, 250px 250px, 180px 180px, 220px 220px, 200px 200px, 280px 280px, 400px 400px, 350px 350px, 450px 450px, 320px 320px;
+    z-index: -9;
+    animation: particles-float 20s linear infinite, particles-twinkle 3s ease-in-out infinite;
+  }
+  
+  @keyframes particles-float {
+    0% {
+      transform: translateX(0) translateY(0) rotate(0deg);
+      opacity: 0.7;
+    }
+    33% {
+      transform: translateX(-15px) translateY(-25px) rotate(120deg);
+      opacity: 1;
+    }
+    66% {
+      transform: translateX(25px) translateY(-15px) rotate(240deg);
+      opacity: 0.8;
+    }
+    100% {
+      transform: translateX(10px) translateY(-5px) rotate(360deg);
+      opacity: 0.7;
+    }
+  }
+  
+  @keyframes particles-twinkle {
+    0%, 100% {
+      filter: brightness(1) blur(0px);
+    }
+    50% {
+      filter: brightness(1.5) blur(0.5px);
+    }
   }
 
-  /* Ensure no other backgrounds override the image */
+  /* Ensure no other backgrounds override */
   html, #root {
       background: transparent;
-  }
-
-  /* Force background image visibility */
-  body::before {
-      content: '';
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-image: url('https://i.pinimg.com/736x/2b/49/22/2b492229bd247aa80340461018673d29.jpg');
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
-      background-attachment: fixed;
-      z-index: -1;
-      pointer-events: none;
-      opacity: 1 !important;
-  }
-
-  /* Debug indicator - shows background image status */
-  body::after {
-      content: '🖼️ BG Image Loading...';
-      position: fixed;
-      bottom: 10px;
-      right: 10px;
-      background: rgba(255, 165, 0, 0.8);
-      color: white;
-      padding: 5px 10px;
-      border-radius: 5px;
-      font-size: 12px;
-      z-index: 9999;
-      font-family: monospace;
-      pointer-events: none;
-  }
-
-  /* Success state */
-  body.image-loaded::after {
-      content: '✅ BG Image Loaded';
-      background: rgba(0, 255, 0, 0.8);
-  }
-
-  /* Error state */
-  body.image-error::after {
-      content: '❌ BG Image Failed';
-      background: rgba(255, 0, 0, 0.8);
-  }
-
-  /* Alternative background approach if CSS fails */
-  body.image-error {
-      background: linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%) !important;
-  }
-
-  body.image-error::before {
-      background: linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%) !important;
   }
 
   /* SCROLLBAR STYLING */
@@ -168,6 +222,29 @@
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
+
+  /* TERMINAL SPECIFIC STYLES */
+  .xterm {
+    background: transparent !important;
+  }
+
+  .xterm-viewport {
+    background: transparent !important;
+  }
+
+  .xterm-screen {
+    background: transparent !important;
+  }
+
+  /* Ensure terminal is focusable and visible */
+  .terminal-container {
+    background: #1e1e1e !important;
+    color: #d4d4d4 !important;
+  }
+
+  .terminal-container:focus {
+    outline: none;
+  }
 }
 
 /* COMPONENT STYLES */
@@ -187,27 +264,33 @@
 
   /* GLASS MORPHISM */
   .glass {
-    background: var(--glass-bg);
+    background: rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
   .glass-light {
-    background: rgba(255, 255, 255, 0.02);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 
+      0 4px 20px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
   .glass-strong {
-    background: var(--glass-bg-strong);
+    background: rgba(255, 255, 255, 0.12);
     backdrop-filter: blur(25px);
     -webkit-backdrop-filter: blur(25px);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 
+      0 12px 40px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
   }
 
   .glass-card {
@@ -231,7 +314,7 @@
   }
 
   .glass-overlay {
-    background: rgba(255, 255, 255, 0.01);
+    background: rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
   }
@@ -245,7 +328,79 @@
 @layer utilities {
   .frost {
     backdrop-filter: blur(10px);
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* INTENSE AURORA GLOW EFFECTS */
+  .aurora-glow {
+    box-shadow: 
+      0 0 30px rgba(0, 255, 150, 0.6),
+      0 0 60px rgba(64, 224, 255, 0.4),
+      0 0 90px rgba(255, 0, 200, 0.3),
+      0 0 120px rgba(138, 43, 226, 0.2);
+    animation: aurora-pulse 3s ease-in-out infinite;
+  }
+  
+  @keyframes aurora-pulse {
+    0%, 100% {
+      box-shadow: 
+        0 0 30px rgba(0, 255, 150, 0.6),
+        0 0 60px rgba(64, 224, 255, 0.4),
+        0 0 90px rgba(255, 0, 200, 0.3),
+        0 0 120px rgba(138, 43, 226, 0.2);
+      transform: scale(1);
+    }
+    50% {
+      box-shadow: 
+        0 0 50px rgba(0, 255, 150, 0.9),
+        0 0 100px rgba(64, 224, 255, 0.7),
+        0 0 150px rgba(255, 0, 200, 0.5),
+        0 0 200px rgba(138, 43, 226, 0.4);
+      transform: scale(1.02);
+    }
+  }
+  
+  .aurora-text {
+    background: linear-gradient(
+      45deg,
+      #00ff96,
+      #40e0ff,
+      #ff00c8,
+      #8a2be2,
+      #ff69b4,
+      #00ffff,
+      #00ff96
+    );
+    background-size: 600% 600%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: aurora-text-shift 4s ease-in-out infinite;
+    filter: drop-shadow(0 0 10px rgba(0, 255, 150, 0.5)) drop-shadow(0 0 20px rgba(255, 0, 200, 0.3));
+  }
+  
+  @keyframes aurora-text-shift {
+    0% {
+      background-position: 0% 50%;
+      filter: drop-shadow(0 0 10px rgba(0, 255, 150, 0.5)) drop-shadow(0 0 20px rgba(255, 0, 200, 0.3));
+    }
+    25% {
+      background-position: 100% 25%;
+      filter: drop-shadow(0 0 15px rgba(64, 224, 255, 0.6)) drop-shadow(0 0 25px rgba(138, 43, 226, 0.4));
+    }
+    50% {
+      background-position: 200% 75%;
+      filter: drop-shadow(0 0 20px rgba(255, 105, 180, 0.7)) drop-shadow(0 0 30px rgba(0, 255, 255, 0.5));
+    }
+    75% {
+      background-position: 300% 25%;
+      filter: drop-shadow(0 0 15px rgba(255, 0, 200, 0.6)) drop-shadow(0 0 25px rgba(0, 255, 150, 0.4));
+    }
+    100% {
+      background-position: 600% 50%;
+      filter: drop-shadow(0 0 10px rgba(0, 255, 150, 0.5)) drop-shadow(0 0 20px rgba(255, 0, 200, 0.3));
+    }
   }
 
   /* SCROLLBAR UTILITIES */

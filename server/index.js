@@ -5,19 +5,180 @@ const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const httpProxy = require('http-proxy');
+const Docker = require('dockerode');
+const helmet = require('helmet');
+const { body, validationResult } = require('express-validator');
+const MonitoringService = require('./monitoring');
+const PaymentService = require('./payment');
+const UsageTrackingService = require('./usageTracking');
+const PerformanceOptimizer = require('./performanceOptimizer');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Initialize services
+const monitoring = new MonitoringService();
+const paymentService = new PaymentService();
+const usageTracking = new UsageTrackingService();
+const performanceOptimizer = new PerformanceOptimizer();
+
 // Middleware
+app.use(helmet()); // Security headers
 app.use(cors({
-    origin: ['http://localhost:12000', 'http://127.0.0.1:12000', 'http://localhost:5173'],
+    origin: ['http://localhost:12000', 'http://127.0.0.1:12000', 'http://localhost:5173', 'https://preview.mominai.com'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID'],
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increase limit for file uploads
+app.use(express.urlencoded({ extended: true }));
+
+// Performance optimization middleware
+app.use(performanceOptimizer.trackResponseTime());
+
+// Monitoring middleware
+app.use((req, res, next) => {
+    const startTime = Date.now();
+    
+    res.on('finish', () => {
+        const responseTime = Date.now() - startTime;
+        const success = res.statusCode >= 200 && res.statusCode < 400;
+        const rateLimited = res.statusCode === 429;
+        
+        monitoring.recordRequest(success, rateLimited);
+    });
+    
+    next();
+});
+
+// Enhanced Rate limiting with multiple tiers
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: {
+        error: 'Too many requests from this IP, please try again later.',
+        retryAfter: '15 minutes'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Too many requests from this IP, please try again later.',
+            retryAfter: '15 minutes'
+        });
+    }
+});
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // limit each IP to 5 auth requests per windowMs
+    message: {
+        error: 'Too many authentication attempts, please try again later.',
+        retryAfter: '15 minutes'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Too many authentication attempts, please try again later.',
+            retryAfter: '15 minutes'
+        });
+    }
+});
+
+// Premium user rate limiting (higher limits)
+const premiumLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 500, // limit premium users to 500 requests per windowMs
+    message: {
+        error: 'Rate limit exceeded for premium users.',
+        retryAfter: '15 minutes'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Rate limit exceeded for premium users.',
+            retryAfter: '15 minutes'
+        });
+    }
+});
+
+// Apply rate limiting
+app.use('/api/auth/', authLimiter);
+app.use('/api/', generalLimiter);
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'Access token required' });
+    }
+
+    jwt.verify(token, CONFIG.JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token' });
+        }
+        req.user = user;
+        req.isPremium = user.subscription === 'premium' || user.subscription === 'team' || user.subscription === 'enterprise';
+        next();
+    });
+};
+
+// Premium user middleware
+const requirePremium = (req, res, next) => {
+    if (!req.isPremium) {
+        return res.status(403).json({ 
+            error: 'Premium subscription required',
+            upgradeUrl: '/upgrade',
+            features: ['Docker containers', 'Remote development', 'Advanced debugging']
+        });
+    }
+    next();
+};
+
+// Apply premium rate limiting for premium endpoints
+const applyPremiumRateLimit = (req, res, next) => {
+    if (req.isPremium) {
+        return premiumLimiter(req, res, next);
+    }
+    next();
+};
+
+// Session-based authentication for WebSocket connections
+const authenticateSession = (req, res, next) => {
+    const sessionId = req.headers['x-session-id'] || req.query.sessionId;
+    if (!sessionId) {
+        return res.status(401).json({ error: 'Session ID required' });
+    }
+
+    const session = sessions.get(sessionId);
+    if (!session) {
+        return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    req.session = session;
+    next();
+};
+
+// Security Headers Middleware
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self' wss: ws: https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';");
+    next();
+});
 
 // Configuration
 const CONFIG = {
@@ -28,8 +189,24 @@ const CONFIG = {
     SESSION_IDLE_TIMEOUT: 30 * 60 * 1000, // 30 minutes
     MAX_SESSIONS: 50, // Limit concurrent sessions
     DOCKER_NETWORK: 'ide-network',
-    USE_DOCKER: false // Set to true for production, false for local development
+    USE_DOCKER: false, // Set to true for production, false for local development
+    JWT_SECRET: process.env.JWT_SECRET || 'mominai-jwt-secret-key',
+    PREVIEW_DOMAIN: process.env.PREVIEW_DOMAIN || 'preview.mominai.com',
+    API_PORT: process.env.PORT || 3001
 };
+
+// Initialize Docker client
+const docker = new Docker();
+
+// Initialize proxy server for preview functionality
+const proxy = httpProxy.createProxyServer({
+    ws: true,
+    changeOrigin: true
+});
+
+// In-memory user store (in production, use a database)
+const users = new Map();
+const activePreviews = new Map(); // sessionId -> { port, containerId }
 
 // In-memory storage for sessions and containers
 const sessions = new Map(); // sessionId -> session data
@@ -67,8 +244,33 @@ async function ensureWorkspaceDirectory(sessionId) {
 
 // WebSocket connection handler
 wss.on('connection', async (ws, req) => {
-    const sessionId = req.url.split('/').pop();
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const sessionId = url.pathname.split('/').pop();
+    const token = url.searchParams.get('token');
+
     console.log(`New WebSocket connection for session: ${sessionId}`);
+
+    // Authenticate WebSocket connection
+    if (!token) {
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Authentication token required'
+        }));
+        ws.close();
+        return;
+    }
+
+    try {
+        const decoded = jwt.verify(token, CONFIG.JWT_SECRET);
+        console.log(`Authenticated user: ${decoded.email}`);
+    } catch (error) {
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid authentication token'
+        }));
+        ws.close();
+        return;
+    }
 
     // Check session limit
     if (sessions.size >= CONFIG.MAX_SESSIONS) {
@@ -89,7 +291,8 @@ wss.on('connection', async (ws, req) => {
             connectedAt: Date.now(),
             lastActivity: Date.now(),
             container: null,
-            workspacePath: null
+            workspacePath: null,
+            userId: null // Will be set from token
         };
         sessions.set(sessionId, session);
 
@@ -380,6 +583,26 @@ async function handleMessage(sessionId, data) {
 
         case 'stop_container':
             await stopContainer(sessionId);
+            break;
+
+        case 'get_container_status':
+            await getContainerStatus(sessionId);
+            break;
+
+        case 'restart_container':
+            await restartContainer(sessionId);
+            break;
+
+        case 'exec_command':
+            await execCommand(sessionId, payload);
+            break;
+
+        case 'start_preview':
+            await startPreview(sessionId, payload);
+            break;
+
+        case 'stop_preview':
+            await stopPreview(sessionId);
             break;
 
         default:
@@ -719,6 +942,229 @@ async function stopContainer(sessionId) {
     }
 }
 
+// New WebSocket handler functions
+async function getContainerStatus(sessionId) {
+    const session = sessions.get(sessionId);
+    const container = containers.get(sessionId);
+
+    if (!session || !session.ws) return;
+
+    try {
+        let status = 'stopped';
+        let containerInfo = null;
+
+        if (CONFIG.USE_DOCKER && container) {
+            const dockerContainer = docker.getContainer(container.name);
+            const info = await dockerContainer.inspect();
+            status = info.State.Status;
+            containerInfo = {
+                id: info.Id,
+                name: info.Name,
+                image: info.Config.Image,
+                status: info.State.Status,
+                ports: info.NetworkSettings.Ports,
+                created: info.Created
+            };
+        } else if (container) {
+            status = 'running';
+            containerInfo = {
+                name: container.name,
+                startedAt: container.startedAt
+            };
+        }
+
+        session.ws.send(JSON.stringify({
+            type: 'container_status',
+            sessionId,
+            status,
+            container: containerInfo
+        }));
+    } catch (error) {
+        session.ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to get container status'
+        }));
+    }
+}
+
+async function restartContainer(sessionId) {
+    const session = sessions.get(sessionId);
+    if (!session || !session.ws) return;
+
+    try {
+        // Stop current container
+        await stopContainer(sessionId);
+
+        // Wait a moment
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Start new container
+        await startProcessForSession(sessionId);
+
+        session.ws.send(JSON.stringify({
+            type: 'container_restarted',
+            sessionId
+        }));
+    } catch (error) {
+        session.ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to restart container'
+        }));
+    }
+}
+
+async function execCommand(sessionId, payload) {
+    const session = sessions.get(sessionId);
+    if (!session || !session.ws) return;
+
+    const { command, args = [], cwd = '/workspace' } = payload;
+
+    try {
+        if (CONFIG.USE_DOCKER) {
+            const container = containers.get(sessionId);
+            if (!container) {
+                throw new Error('Container not available');
+            }
+
+            const dockerContainer = docker.getContainer(container.name);
+            const exec = await dockerContainer.exec({
+                Cmd: [command, ...args],
+                WorkingDir: cwd,
+                AttachStdout: true,
+                AttachStderr: true
+            });
+
+            const stream = await exec.start();
+            const execId = `exec_${Date.now()}`;
+
+            stream.on('data', (chunk) => {
+                session.ws.send(JSON.stringify({
+                    type: 'exec_output',
+                    execId,
+                    data: chunk.toString()
+                }));
+            });
+
+            stream.on('end', () => {
+                session.ws.send(JSON.stringify({
+                    type: 'exec_end',
+                    execId
+                }));
+            });
+        } else {
+            // Local execution
+            const proc = spawn(command, args, { cwd: session.workspacePath });
+            const execId = `exec_${Date.now()}`;
+
+            proc.stdout.on('data', (data) => {
+                session.ws.send(JSON.stringify({
+                    type: 'exec_output',
+                    execId,
+                    data: data.toString()
+                }));
+            });
+
+            proc.stderr.on('data', (data) => {
+                session.ws.send(JSON.stringify({
+                    type: 'exec_output',
+                    execId,
+                    data: data.toString()
+                }));
+            });
+
+            proc.on('exit', (code) => {
+                session.ws.send(JSON.stringify({
+                    type: 'exec_end',
+                    execId,
+                    code
+                }));
+            });
+        }
+    } catch (error) {
+        session.ws.send(JSON.stringify({
+            type: 'error',
+            message: `Failed to execute command: ${error.message}`
+        }));
+    }
+}
+
+async function startPreview(sessionId, payload) {
+    const session = sessions.get(sessionId);
+    if (!session || !session.ws) return;
+
+    const { port = 3000 } = payload;
+
+    try {
+        if (CONFIG.USE_DOCKER) {
+            const container = containers.get(sessionId);
+            if (!container) {
+                throw new Error('Container not available');
+            }
+
+            const dockerContainer = docker.getContainer(container.name);
+
+            // Get container info to check if port is exposed
+            const info = await dockerContainer.inspect();
+
+            // Expose port if not already exposed
+            if (!info.NetworkSettings.Ports[`${port}/tcp`]) {
+                // Note: In a real implementation, you'd need to recreate the container with port mapping
+                // For now, we'll assume the port is already mapped
+            }
+
+            activePreviews.set(sessionId, {
+                port,
+                containerId: container.name,
+                startedAt: Date.now()
+            });
+
+            session.ws.send(JSON.stringify({
+                type: 'preview_started',
+                sessionId,
+                port,
+                url: `https://${CONFIG.PREVIEW_DOMAIN}/${sessionId}`
+            }));
+        } else {
+            // For local development, just mark as active
+            activePreviews.set(sessionId, {
+                port,
+                startedAt: Date.now()
+            });
+
+            session.ws.send(JSON.stringify({
+                type: 'preview_started',
+                sessionId,
+                port,
+                url: `http://localhost:${port}`
+            }));
+        }
+    } catch (error) {
+        session.ws.send(JSON.stringify({
+            type: 'error',
+            message: `Failed to start preview: ${error.message}`
+        }));
+    }
+}
+
+async function stopPreview(sessionId) {
+    const session = sessions.get(sessionId);
+    if (!session || !session.ws) return;
+
+    try {
+        activePreviews.delete(sessionId);
+
+        session.ws.send(JSON.stringify({
+            type: 'preview_stopped',
+            sessionId
+        }));
+    } catch (error) {
+        session.ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to stop preview'
+        }));
+    }
+}
+
 // Cleanup function
 async function cleanupSession(sessionId) {
     console.log(`Cleaning up session: ${sessionId}`);
@@ -763,21 +1209,674 @@ async function cleanupSession(sessionId) {
     console.log(`Session ${sessionId} cleanup complete`);
 }
 
+// Authentication routes
+// Enhanced input validation middleware
+const sanitizeInput = (req, res, next) => {
+    // Sanitize all string inputs
+    const sanitizeString = (str) => {
+        if (typeof str !== 'string') return str;
+        return str
+            .replace(/[<>\"'&]/g, (match) => {
+                const entities = {
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#x27;',
+                    '&': '&amp;'
+                };
+                return entities[match];
+            })
+            .trim()
+            .substring(0, 1000); // Limit length
+    };
+
+    // Sanitize request body
+    if (req.body && typeof req.body === 'object') {
+        Object.keys(req.body).forEach(key => {
+            if (typeof req.body[key] === 'string') {
+                req.body[key] = sanitizeString(req.body[key]);
+            }
+        });
+    }
+
+    next();
+};
+
+app.post('/api/auth/register', [
+    body('email')
+        .isEmail()
+        .normalizeEmail()
+        .isLength({ max: 254 })
+        .custom((value) => {
+            // Check for suspicious patterns
+            if (value.includes('..') || value.includes('//')) {
+                throw new Error('Invalid email format');
+            }
+            return true;
+        }),
+    body('password')
+        .isLength({ min: 8, max: 128 })
+        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+        .withMessage('Password must contain at least 8 characters with uppercase, lowercase, number, and special character'),
+    body('username')
+        .isLength({ min: 3, max: 30 })
+        .matches(/^[a-zA-Z0-9_-]+$/)
+        .withMessage('Username must contain only letters, numbers, underscores, and hyphens'),
+    sanitizeInput
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+
+        const { email, password, username } = req.body;
+
+        // Check if user already exists
+        if (users.has(email)) {
+            return res.status(409).json({ error: 'User already exists' });
+        }
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Create user
+        const user = {
+            id: Date.now().toString(),
+            email,
+            username,
+            password: hashedPassword,
+            createdAt: new Date().toISOString(),
+            sessions: []
+        };
+
+        users.set(email, user);
+
+        // Generate JWT token
+        const token = jwt.sign(
+            { id: user.id, email: user.email, username: user.username },
+            CONFIG.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.status(201).json({
+            message: 'User created successfully',
+            token,
+            user: { id: user.id, email: user.email, username: user.username }
+        });
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/auth/login', [
+    body('email')
+        .isEmail()
+        .normalizeEmail()
+        .isLength({ max: 254 })
+        .custom((value) => {
+            if (value.includes('..') || value.includes('//')) {
+                throw new Error('Invalid email format');
+            }
+            return true;
+        }),
+    body('password')
+        .exists()
+        .isLength({ min: 1, max: 128 }),
+    sanitizeInput
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+
+        const { email, password } = req.body;
+        const user = users.get(email);
+
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Generate JWT token
+        const token = jwt.sign(
+            { id: user.id, email: user.email, username: user.username },
+            CONFIG.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            message: 'Login successful',
+            token,
+            user: { id: user.id, email: user.email, username: user.username }
+        });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Container management endpoints
+app.post('/api/containers', authenticateToken, async (req, res) => {
+    try {
+        const { image = CONFIG.CONTAINER_IMAGE, name, env = [], ports = [] } = req.body;
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Create workspace directory
+        const workspacePath = await ensureWorkspaceDirectory(sessionId);
+
+        let container;
+        if (CONFIG.USE_DOCKER) {
+            // Create Docker container
+            container = await docker.createContainer({
+                Image: image,
+                name: name || `ide_session_${sessionId}`,
+                Env: env,
+                HostConfig: {
+                    Binds: [`${workspacePath}:/workspace`],
+                    CpuQuota: parseFloat(CONFIG.CONTAINER_CPU_LIMIT) * 100000,
+                    Memory: parseInt(CONFIG.CONTAINER_MEMORY_LIMIT.replace('m', '')) * 1024 * 1024,
+                    NetworkMode: CONFIG.DOCKER_NETWORK
+                },
+                WorkingDir: '/workspace',
+                Tty: true,
+                OpenStdin: true,
+                StdinOnce: false
+            });
+
+            // Start container
+            await container.start();
+        }
+
+        // Create session
+        const session = {
+            id: sessionId,
+            userId: req.user.id,
+            containerId: container ? container.id : null,
+            workspacePath,
+            createdAt: new Date().toISOString(),
+            status: 'running'
+        };
+
+        sessions.set(sessionId, session);
+
+        res.status(201).json({
+            sessionId,
+            containerId: container ? container.id : null,
+            workspacePath,
+            status: 'running'
+        });
+    } catch (error) {
+        console.error('Container creation error:', error);
+        res.status(500).json({ error: 'Failed to create container' });
+    }
+});
+
+app.get('/api/containers/:sessionId', authenticateToken, (req, res) => {
+    const { sessionId } = req.params;
+    const session = sessions.get(sessionId);
+
+    if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.userId !== req.user.id) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
+    res.json(session);
+});
+
+app.delete('/api/containers/:sessionId', authenticateToken, async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const session = sessions.get(sessionId);
+
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        if (session.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Stop and remove container
+        if (CONFIG.USE_DOCKER && session.containerId) {
+            try {
+                const container = docker.getContainer(session.containerId);
+                await container.stop({ t: 10 });
+                await container.remove();
+            } catch (error) {
+                console.error('Error stopping container:', error);
+            }
+        }
+
+        // Clean up session
+        sessions.delete(sessionId);
+        await cleanupSession(sessionId);
+
+        res.json({ message: 'Container destroyed successfully' });
+    } catch (error) {
+        console.error('Container destruction error:', error);
+        res.status(500).json({ error: 'Failed to destroy container' });
+    }
+});
+
+// File operations endpoints
+app.get('/api/containers/:sessionId/files/*', authenticateToken, async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const filePath = req.params[0];
+        const session = sessions.get(sessionId);
+
+        if (!session || session.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const fullPath = path.join(session.workspacePath, filePath);
+        const content = await fs.readFile(fullPath, 'utf8');
+
+        res.json({ content });
+    } catch (error) {
+        res.status(404).json({ error: 'File not found' });
+    }
+});
+
+app.put('/api/containers/:sessionId/files/*', authenticateToken, async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const filePath = req.params[0];
+        const { content } = req.body;
+        const session = sessions.get(sessionId);
+
+        if (!session || session.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const fullPath = path.join(session.workspacePath, filePath);
+        await fs.writeFile(fullPath, content, 'utf8');
+
+        res.json({ message: 'File updated successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update file' });
+    }
+});
+
+// Preview proxy routes
+app.get('/preview/:sessionId/*', authenticateToken, async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const previewPath = req.params[0] || '';
+        const session = sessions.get(sessionId);
+
+        if (!session || session.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const preview = activePreviews.get(sessionId);
+        if (!preview) {
+            return res.status(404).json({ error: 'Preview not available' });
+        }
+
+        // Proxy the request to the container
+        const target = `http://localhost:${preview.port}`;
+        proxy.web(req, res, { target }, (error) => {
+            console.error('Proxy error:', error);
+            res.status(500).json({ error: 'Preview proxy error' });
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Preview error' });
+    }
+});
+
 // HTTP routes
+// Monitoring and health endpoints
+app.get('/api/health', async (req, res) => {
+    try {
+        const healthStatus = monitoring.getHealthStatus();
+        res.status(200).json({
+            status: healthStatus.status,
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            version: '1.0.0',
+            issues: healthStatus.issues,
+            metrics: healthStatus.metrics
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Health check failed' });
+    }
+});
+
+app.get('/api/metrics', authenticateToken, async (req, res) => {
+    try {
+        const metrics = monitoring.getMetrics();
+        res.status(200).json(metrics);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get metrics' });
+    }
+});
+
+app.get('/api/alerts', authenticateToken, async (req, res) => {
+    try {
+        const alerts = monitoring.alerts.slice(-20); // Last 20 alerts
+        res.status(200).json({ alerts });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get alerts' });
+    }
+});
+
+app.get('/api/performance', authenticateToken, async (req, res) => {
+    try {
+        const performanceReport = performanceOptimizer.getPerformanceReport();
+        res.status(200).json(performanceReport);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get performance data' });
+    }
+});
+
+app.post('/api/performance/optimize', authenticateToken, async (req, res) => {
+    try {
+        // Only allow performance optimization for premium users
+        if (!req.isPremium) {
+            return res.status(403).json({ error: 'Performance optimization requires premium subscription' });
+        }
+
+        performanceOptimizer.optimizeMemory();
+        res.status(200).json({ message: 'Performance optimization completed' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to optimize performance' });
+    }
+});
+
+// Subscription and usage management endpoints
+app.get('/api/subscription/status', authenticateToken, async (req, res) => {
+    try {
+        const subscription = req.user.subscription || 'free';
+        const usageStats = usageTracking.getUsageStats(req.user.id, subscription);
+        
+        res.status(200).json({
+            subscription: subscription,
+            isPremium: req.isPremium,
+            features: req.isPremium ? ['docker', 'remote_dev', 'advanced_debug'] : ['webcontainer'],
+            limits: req.isPremium ? { requests: 500, storage: 'unlimited' } : { requests: 100, storage: '1GB' },
+            usage: usageStats
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get subscription status' });
+    }
+});
+
+app.get('/api/usage/stats', authenticateToken, async (req, res) => {
+    try {
+        const subscription = req.user.subscription || 'free';
+        const usageStats = usageTracking.getUsageStats(req.user.id, subscription);
+        
+        res.status(200).json({
+            subscription: subscription,
+            usage: usageStats
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get usage stats' });
+    }
+});
+
+app.post('/api/usage/reset', authenticateToken, async (req, res) => {
+    try {
+        // Only allow reset for premium users or daily reset
+        if (req.isPremium) {
+            usageTracking.resetUsage(req.user.id);
+            res.status(200).json({ message: 'Usage reset successfully' });
+        } else {
+            res.status(403).json({ error: 'Usage reset only available for premium users' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to reset usage' });
+    }
+});
+
+// Payment and subscription endpoints
+app.get('/api/plans', async (req, res) => {
+    try {
+        const plans = paymentService.getPlans();
+        res.status(200).json({ plans });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get plans' });
+    }
+});
+
+app.post('/api/payment/create-customer', authenticateToken, async (req, res) => {
+    try {
+        const result = await paymentService.createCustomer(req.user);
+        
+        if (result.success) {
+            // Update user with customer ID (in real implementation, save to database)
+            req.user.stripeCustomerId = result.customerId;
+            res.status(200).json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create customer' });
+    }
+});
+
+app.post('/api/payment/create-subscription', authenticateToken, async (req, res) => {
+    try {
+        const { planId } = req.body;
+        const customerId = req.user.stripeCustomerId;
+        
+        if (!customerId) {
+            return res.status(400).json({ error: 'Customer not found. Please create customer first.' });
+        }
+
+        const result = await paymentService.createSubscription(customerId, planId);
+        
+        if (result.success) {
+            // Update user subscription (in real implementation, save to database)
+            req.user.subscription = planId;
+            res.status(200).json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create subscription' });
+    }
+});
+
+app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    try {
+        const signature = req.headers['stripe-signature'];
+        const result = await paymentService.handleWebhook(req.body, signature);
+        
+        if (result.success) {
+            res.status(200).json({ received: true });
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        res.status(400).json({ error: 'Webhook error' });
+    }
+});
+
+// Premium feature endpoints (legacy activation code support)
+app.post('/api/premium/activate', authenticateToken, async (req, res) => {
+    try {
+        const { activationCode } = req.body;
+        
+        if (activationCode === 'FREEPALESTINE1!') {
+            // In a real implementation, this would update the database
+            req.user.subscription = 'premium';
+            monitoring.recordUserAction('upgrade', true);
+            res.status(200).json({
+                success: true,
+                subscription: 'premium',
+                message: 'Premium activated successfully'
+            });
+        } else {
+            res.status(400).json({ error: 'Invalid activation code' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to activate premium' });
+    }
+});
+
+// Container management endpoints with premium checks
+app.get('/api/containers', authenticateToken, requirePremium, applyPremiumRateLimit, async (req, res) => {
+    try {
+        if (!CONFIG.USE_DOCKER) {
+            return res.status(503).json({ error: 'Docker not available' });
+        }
+
+        const containerList = Array.from(containers.values()).map(container => ({
+            id: container.name,
+            name: container.name,
+            status: container.status,
+            created: container.created
+        }));
+
+        res.status(200).json({ containers: containerList });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to list containers' });
+    }
+});
+
+// File system endpoints with proper routing
+app.get('/api/containers/:sessionId/files/*', authenticateToken, async (req, res) => {
+    try {
+        const sessionId = req.params.sessionId;
+        const filePath = req.params[0] || '/workspace';
+        
+        // Check if user owns this session
+        if (req.user.userId !== sessions.get(sessionId)?.userId) {
+            return res.status(403).json({ error: 'Access denied to this session' });
+        }
+
+        const containerInfo = containers.get(sessionId);
+        if (!containerInfo) {
+            return res.status(404).json({ error: 'Container not found' });
+        }
+
+        if (CONFIG.USE_DOCKER) {
+            const container = docker.getContainer(containerInfo.name);
+            const exec = await container.exec({
+                Cmd: ['cat', filePath],
+                AttachStdout: true,
+                AttachStderr: true
+            });
+
+            const stream = await exec.start();
+            let output = '';
+            stream.on('data', (chunk) => {
+                output += chunk.toString();
+            });
+
+            stream.on('end', () => {
+                res.status(200).json({ 
+                    path: filePath,
+                    content: output,
+                    size: output.length
+                });
+            });
+        } else {
+            // Local mode - read from local filesystem
+            try {
+                const fullPath = path.join(CONFIG.LOCAL_WORKSPACE_DIR, sessionId, filePath);
+                const content = await fs.readFile(fullPath, 'utf8');
+                res.status(200).json({ 
+                    path: filePath,
+                    content: content,
+                    size: content.length
+                });
+            } catch (error) {
+                res.status(404).json({ error: 'File not found' });
+            }
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to read file' });
+    }
+});
+
 app.get('/health', async (req, res) => {
     try {
+        const containerStats = [];
+        let dockerStatus = 'unavailable';
+
+        if (CONFIG.USE_DOCKER) {
+            try {
+                const dockerInfo = await docker.info();
+                dockerStatus = 'available';
+
+                // Get detailed container information
+                for (const [sessionId, containerInfo] of containers) {
+                    try {
+                        const container = docker.getContainer(containerInfo.name);
+                        const stats = await container.stats({ stream: false });
+                        const info = await container.inspect();
+
+                        containerStats.push({
+                            sessionId,
+                            name: containerInfo.name,
+                            status: info.State.Status,
+                            cpu: stats.cpu_stats ? ((stats.cpu_stats.cpu_usage.total_usage / stats.cpu_stats.system_cpu_usage) * 100).toFixed(2) : 0,
+                            memory: stats.memory_stats ? {
+                                used: stats.memory_stats.usage,
+                                limit: stats.memory_stats.limit,
+                                percentage: ((stats.memory_stats.usage / stats.memory_stats.limit) * 100).toFixed(2)
+                            } : null,
+                            network: stats.networks ? stats.networks.eth0 : null,
+                            startedAt: containerInfo.startedAt
+                        });
+                    } catch (error) {
+                        containerStats.push({
+                            sessionId,
+                            name: containerInfo.name,
+                            status: 'error',
+                            error: error.message
+                        });
+                    }
+                }
+            } catch (error) {
+                dockerStatus = 'error';
+            }
+        }
+
         res.json({
             status: 'ok',
-            sessions: sessions.size,
-            containers: containers.size,
-            docker: CONFIG.USE_DOCKER,
-            mode: CONFIG.USE_DOCKER ? 'docker' : 'local',
-            uptime: process.uptime()
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            sessions: {
+                total: sessions.size,
+                active: Array.from(sessions.values()).filter(s => s.ws && s.ws.readyState === 1).length
+            },
+            containers: {
+                total: containers.size,
+                docker: CONFIG.USE_DOCKER,
+                dockerStatus,
+                details: containerStats
+            },
+            previews: {
+                active: activePreviews.size
+            },
+            config: {
+                maxSessions: CONFIG.MAX_SESSIONS,
+                containerImage: CONFIG.CONTAINER_IMAGE,
+                cpuLimit: CONFIG.CONTAINER_CPU_LIMIT,
+                memoryLimit: CONFIG.CONTAINER_MEMORY_LIMIT,
+                idleTimeout: CONFIG.SESSION_IDLE_TIMEOUT
+            },
+            system: {
+                platform: process.platform,
+                nodeVersion: process.version,
+                memory: process.memoryUsage(),
+                loadAverage: process.platform !== 'win32' ? require('os').loadavg() : null
+            }
         });
     } catch (error) {
         res.status(500).json({
             status: 'error',
-            message: error.message
+            message: error.message,
+            timestamp: new Date().toISOString()
         });
     }
 });

@@ -3,11 +3,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAI } from '../contexts/AIContext';
 import type { Message } from '../types';
 import { Icons } from './Icon';
+import AIStatusAnimations from './AIStatusAnimations';
 
 declare const marked: any;
 
 const AIAssistant: React.FC = () => {
-  const { messages, sendMessage, isLoading, applyChanges, internetAccessEnabled, toggleInternetAccess } = useAI();
+   const { messages, sendMessage, isLoading, aiStatusPhase, applyChanges, internetAccessEnabled, toggleInternetAccess } = useAI();
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
@@ -59,11 +60,12 @@ const AIAssistant: React.FC = () => {
 
   return (
     <div className="text-gray-200 h-full flex flex-col bg-transparent">
-      {/* Internet Access Toggle */}
+      {/* Internet Access Toggle - Always Available */}
       <div className="p-3 border-b border-[var(--border-color)] bg-[var(--ui-panel-bg-heavy)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icons.ExternalLink className="w-4 h-4 text-blue-400" />
           <span className="text-sm font-medium">Internet Access</span>
+          <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">Enabled</span>
         </div>
         <button
           onClick={toggleInternetAccess}
@@ -106,24 +108,8 @@ const AIAssistant: React.FC = () => {
             </div>
           </div>
         ))}
-        {(() => {
-          const lastMessage = messages[messages.length - 1];
-          const shouldShowLoader = lastMessage?.sender === 'ai' && !lastMessage.text && !lastMessage.isStreaming;
-          return shouldShowLoader ? (
-            <div className="flex justify-start">
-              <div className="bg-[var(--gray-dark)]/50 text-gray-200 rounded-lg p-3">
-                <div className="flex items-center space-x-3">
-                  <div className="flex space-x-1">
-                    <div className="w-3 h-3 bg-white rounded-full animate-bounce"></div>
-                    <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  </div>
-                  <span className="text-sm text-gray-300 animate-pulse">Thinking...</span>
-                </div>
-              </div>
-            </div>
-          ) : null;
-        })()}
+        {/* AI Status Animations */}
+        <AIStatusAnimations phase={aiStatusPhase} className="mb-4" />
         <div ref={messagesEndRef} />
       </div>
 

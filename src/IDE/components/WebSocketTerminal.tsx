@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useRemoteVM } from '../RemoteVMProvider';
+import { useVMProvider } from '../VMProviderSwitcher';
 import { getWebSocketClient } from '../../services/websocketClient';
 import { Icons } from './Icon';
 
@@ -27,7 +27,7 @@ export const WebSocketTerminal: React.FC<WebSocketTerminalProps> = ({
         onProcessOutput,
         isConnected: vmConnected,
         error
-    } = useRemoteVM();
+    } = useVMProvider();
 
     const wsClient = getWebSocketClient();
 

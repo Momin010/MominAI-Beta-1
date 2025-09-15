@@ -1,0 +1,264 @@
+/* 🚀 MOMINAI REVOLUTION - SUPERIOR STYLING */
+/* BEATING ALL COMPETITORS WITH MODERN, ACCESSIBLE DESIGN */
+
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* CSS VARIABLES FOR THEMING - GLASS MORPHISM */
+@layer base {
+  :root {
+    --background: 60 27% 91%;
+    --foreground: 210 40% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 210 40% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 0 0% 100%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 0 0% 100%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 91.2% 59.8%;
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 0 0% 90%;
+    --input: 0 0% 100%;
+    --ring: 224.3 76.3% 94.1%;
+    --radius: 0.75rem;
+
+    /* GLASS MORPHISM VARIABLES */
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    --glass-bg-strong: rgba(255, 255, 255, 0.12);
+    --glass-bg-light: rgba(255, 255, 255, 0.05);
+    --glass-hover: rgba(255, 255, 255, 0.15);
+  }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+  }
+}
+
+/* BASE STYLES */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+      @apply text-foreground font-sans;
+      font-feature-settings: "rlig" 1, "calt" 1;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-image: url('/avatar.jpg');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      min-height: 100vh;
+      background-color: #f5f5dc; /* Fallback cream color */
+  }
+
+  /* Ensure no other backgrounds override the image */
+  html, #root {
+      background: transparent;
+  }
+
+  /* Force background image visibility */
+  body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: url('/avatar.jpg');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      z-index: -1;
+      pointer-events: none;
+      opacity: 1 !important;
+  }
+
+  /* Debug indicator - shows background image status */
+  body::after {
+      content: '🖼️ BG Image Loading...';
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(255, 165, 0, 0.8);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      z-index: 9999;
+      font-family: monospace;
+      pointer-events: none;
+  }
+
+  /* Success state */
+  body.image-loaded::after {
+      content: '✅ BG Image Loaded';
+      background: rgba(0, 255, 0, 0.8);
+  }
+
+  /* Error state */
+  body.image-error::after {
+      content: '❌ BG Image Failed';
+      background: rgba(255, 0, 0, 0.8);
+  }
+
+  /* Alternative background approach if CSS fails */
+  body.image-error {
+      background: linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%) !important;
+  }
+
+  body.image-error::before {
+      background: linear-gradient(135deg, #f5f5dc 0%, #e8e8d8 100%) !important;
+  }
+
+  /* SCROLLBAR STYLING */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted/20;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+
+  /* SELECTION STYLING */
+  ::selection {
+    @apply bg-primary/20 text-primary-foreground;
+  }
+
+  /* FOCUS STYLES */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+/* COMPONENT STYLES */
+@layer components {
+  /* BUTTON VARIANTS */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg hover:shadow-xl;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-lg hover:shadow-xl;
+  }
+
+  /* GLASS MORPHISM */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-light {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-card {
+    @apply glass rounded-xl p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl;
+  }
+
+  .glass-panel {
+    @apply glass-light rounded-lg;
+  }
+
+  .glass-button {
+    @apply glass px-4 py-2 rounded-lg font-medium transition-all duration-200 hover:bg-white/15 hover:shadow-lg active:scale-95;
+  }
+
+  .glass-input {
+    @apply glass px-3 py-2 rounded-lg border border-white/15 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-200;
+  }
+
+  .glass-sidebar {
+    @apply glass-light rounded-xl shadow-2xl;
+  }
+
+  .glass-overlay {
+    background: rgba(255, 255, 255, 0.01);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  /* GRADIENT TEXT */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent;
+  }
+}
+
+@layer utilities {
+  .frost {
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* SCROLLBAR UTILITIES */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

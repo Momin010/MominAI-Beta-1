@@ -2,31 +2,36 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
 import type { Message, EditorAIAction, FileAction, FileSystemNode } from '../types';
 import { streamAIResponse } from '../services/aiService';
-import { useNotifications } from '../App';
+import { useNotifications } from '../hooks/useNotifications';
 import { getAllFiles } from '../utils/fsUtils';
 import { internetAccessService, type CompanyInfo } from '../services/internetAccessService';
+import { InputClassifier, InputType, type ClassifiedInput } from '../services/inputClassifier';
+import type { AIStatusPhase } from '../components/AIStatusAnimations';
+import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 
 interface AIContextType {
-    messages: Message[];
-    isLoading: boolean;
-    sendMessage: (prompt: string) => Promise<void>;
-    performEditorAction: (action: EditorAIAction, code: string, filePath: string) => Promise<void>;
-    applyChanges: (messageIndex: number, actions: FileAction[]) => void;
-    createNode: (path: string, type: 'file' | 'directory', content?: string) => void;
-    updateNode: (path: string, content: string) => void;
-    getNode: (path: string) => FileSystemNode | null;
-    openFile: (path: string, line?: number) => void;
-    setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-    refreshPreview?: () => void;
-    // Internet access features (safely removable)
-    internetAccessEnabled: boolean;
-    toggleInternetAccess: () => void;
-    scanIndustryWebsites: (industry: string) => Promise<any[]>;
-    takeWebsiteScreenshot: (url: string) => Promise<string>;
-    convertScreenshotToCode: (imageData: string, description: string) => Promise<string>;
-    searchStockImages: (query: string, limit?: number) => Promise<any[]>;
-    searchSketchfabModels: (query: string, limit?: number) => Promise<any[]>;
-    generate3DHeroSection: (model: any, backgroundColor?: string) => Promise<string>;
+      messages: Message[];
+      isLoading: boolean;
+      aiStatusPhase: AIStatusPhase;
+      sendMessage: (prompt: string) => Promise<void>;
+      performEditorAction: (action: EditorAIAction, code: string, filePath: string) => Promise<void>;
+      applyChanges: (messageIndex: number, actions: FileAction[]) => void;
+      createNode: (path: string, type: 'file' | 'directory', content?: string) => void;
+      updateNode: (path: string, content: string) => void;
+      getNode: (path: string) => FileSystemNode | null;
+      openFile: (path: string, line?: number) => void;
+      setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+      refreshPreview?: () => void;
+      onAICompletion?: (actions: FileAction[]) => void;
+      // Internet access features (safely removable)
+      internetAccessEnabled: boolean;
+      toggleInternetAccess: () => void;
+      scanIndustryWebsites: (industry: string) => Promise<any[]>;
+      takeWebsiteScreenshot: (url: string) => Promise<string>;
+      convertScreenshotToCode: (imageData: string, description: string) => Promise<string>;
+      searchStockImages: (query: string, limit?: number) => Promise<any[]>;
+      searchSketchfabModels: (query: string, limit?: number) => Promise<any[]>;
+      generate3DHeroSection: (model: any, backgroundColor?: string) => Promise<string>;
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
@@ -40,28 +45,28 @@ export const useAI = () => {
 };
 
 interface AIProviderProps {
-    children: ReactNode;
-    activeFile: string | null;
-    getOpenFileContent: () => string;
-    createNode: (path: string, type: 'file' | 'directory', content?: string) => void;
-    updateNode: (path: string, content: string) => void;
-    getNode: (path: string) => FileSystemNode | null;
-    openFile: (path: string, line?: number) => void;
-    fs: FileSystemNode | null;
-    setDiffModalState: (state: { isOpen: boolean, actions: FileAction[], originalFiles: { path: string, content: string }[], messageIndex?: number }) => void;
-    refreshPreview?: () => void;
+     children: ReactNode;
+     activeFile: string | null;
+     getOpenFileContent: () => string;
+     createNode: (path: string, type: 'file' | 'directory', content?: string) => void;
+     updateNode: (path: string, content: string) => void;
+     getNode: (path: string) => FileSystemNode | null;
+     openFile: (path: string, line?: number) => void;
+     fs: FileSystemNode | null;
+     setDiffModalState: (state: { isOpen: boolean, actions: FileAction[], originalFiles: { path: string, content: string }[], messageIndex?: number }) => void;
+     refreshPreview?: () => void;
+     onAICompletion?: (actions: FileAction[]) => void;
 }
 
-export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, getOpenFileContent, createNode, updateNode, getNode, openFile, fs, setDiffModalState, refreshPreview }) => {
-    const [messages, setMessages] = useState<Message[]>([
-        { sender: 'ai', text: "Hello! I'm your AI assistant. I have full context of your project and can help with multi-file changes. Ask away!" }
-    ]);
-    const [isLoading, setIsLoading] = useState(false);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const [internetAccessEnabled, setInternetAccessEnabled] = useState(() => {
-        return internetAccessService.isInternetAccessEnabled();
-    });
-    const { addNotification } = useNotifications();
+export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, getOpenFileContent, createNode, updateNode, getNode, openFile, fs, setDiffModalState, refreshPreview, onAICompletion }) => {
+      const [messages, setMessages] = useLocalStorageState<Message[]>('ai-messages', [
+          { sender: 'ai', text: "Hello! I'm your AI assistant. I have full context of your project and can help with multi-file changes. Ask away!" }
+      ]);
+      const [isLoading, setIsLoading] = useState(false);
+      const [aiStatusPhase, setAiStatusPhase] = useState<AIStatusPhase>('idle');
+      const abortControllerRef = useRef<AbortController | null>(null);
+      const [internetAccessEnabled, setInternetAccessEnabled] = useLocalStorageState('ai-internetAccessEnabled', internetAccessService.isInternetAccessEnabled());
+      const { addNotification } = useNotifications();
 
     // Cleanup on unmount
     useEffect(() => {
@@ -73,56 +78,78 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
     }, []);
 
     const sendMessage = useCallback(async (prompt: string) => {
-        if (isLoading || !fs) return;
-
-        // Cancel any existing request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
+        if (isLoading || !fs) {
+            return;
         }
 
-        // Create new abort controller for this request
-        abortControllerRef.current = new AbortController();
+        // Classify the input first
+        const classifiedInput = InputClassifier.classify(prompt);
 
-        setIsLoading(true);
+        // Route to appropriate handler based on classification
+        if (classifiedInput.type === InputType.CODE_REQUEST || (classifiedInput.type !== InputType.CONVERSATIONAL && classifiedInput.confidence < 0.5)) {
+            // For code requests or low confidence non-conversational inputs, fall back to existing AI logic
+            await handleCodeGeneration(prompt);
+        } else {
+            // For conversational inputs or high confidence other types, use the new routing system
+            await handleClassifiedInput(classifiedInput);
+        }
+    }, [isLoading, fs]);
 
-        try {
-            const allFiles = getAllFiles(fs, '/');
-            const projectContext = allFiles.length > 0
-                ? `\n\nHere is the full project structure and content for context:\n` + allFiles.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n')
-                : '';
+    const handleCodeGeneration = useCallback(async (prompt: string) => {
+          // Cancel any existing request
+          if (abortControllerRef.current) {
+              abortControllerRef.current.abort();
+          }
 
-            const fullPrompt = `${prompt}${projectContext}`;
+          // Create new abort controller for this request
+          abortControllerRef.current = new AbortController();
 
-            const userMessage: Message = { sender: 'user', text: prompt };
-            // Store the original contents of the files the AI might change
-            userMessage.originalFileContents = allFiles;
+          setIsLoading(true);
+          setAiStatusPhase('thinking');
 
-            const aiMessagePlaceholder: Message = { sender: 'ai', text: '', isStreaming: true };
-            setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
+          try {
+              const allFiles = getAllFiles(fs, '/');
+              const projectContext = allFiles.length > 0
+                  ? `\n\nHere is the full project structure and content for context:\n` + allFiles.map(f => `--- FILE: ${f.path} ---\n${f.content}`).join('\n\n')
+                  : '';
 
-            let fullResponse = '';
-            const stream = streamAIResponse(fullPrompt);
+              const fullPrompt = `${prompt}${projectContext}`;
 
-            // Check for abort signal
-            for await (const chunk of stream) {
-                if (abortControllerRef.current?.signal.aborted) {
-                    console.log('AI request was cancelled');
-                    return;
-                }
+              const userMessage: Message = { sender: 'user', text: prompt };
+              // Store the original contents of the files the AI might change
+              userMessage.originalFileContents = allFiles;
 
-                fullResponse += chunk;
-                setMessages(prev => {
-                    const newMessages = [...prev];
-                    const lastMessage = newMessages[newMessages.length - 1];
-                    if (lastMessage && lastMessage.sender === 'ai') {
-                        lastMessage.text = fullResponse;
-                    }
-                    return newMessages;
-                });
-            }
+              const aiMessagePlaceholder: Message = { sender: 'ai', text: '', isStreaming: true };
+              setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
 
-            // Stream finished, now process the full response
-            let finalAiMessage: Message = { sender: 'ai', text: fullResponse, isStreaming: false };
+              // Transition to reasoning phase when analyzing project context
+              setAiStatusPhase('reasoning');
+
+              let fullResponse = '';
+              const stream = streamAIResponse(fullPrompt);
+
+              // Transition to working phase when starting to stream response
+              setAiStatusPhase('working');
+
+              // Check for abort signal
+              for await (const chunk of stream) {
+                  if (abortControllerRef.current?.signal.aborted) {
+                      return;
+                  }
+
+                  fullResponse += chunk;
+                  setMessages(prev => {
+                      const newMessages = [...prev];
+                      const lastMessage = newMessages[newMessages.length - 1];
+                      if (lastMessage && lastMessage.sender === 'ai') {
+                          lastMessage.text = fullResponse;
+                      }
+                      return newMessages;
+                  });
+              }
+
+              // Stream finished, now process the full response
+              let finalAiMessage: Message = { sender: 'ai', text: fullResponse, isStreaming: false };
             const jsonStart = fullResponse.indexOf('{');
             const jsonEnd = fullResponse.lastIndexOf('}');
 
@@ -152,8 +179,6 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
             });
 
         } catch (error) {
-            console.error("Error in AI conversation:", error);
-
             // Handle different types of errors
             let errorMessage = 'An unexpected error occurred while processing your request.';
             if (error instanceof Error) {
@@ -184,10 +209,10 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
             addNotification({ type: 'error', message: errorMessage });
         } finally {
             setIsLoading(false);
+            setAiStatusPhase('idle');
             abortControllerRef.current = null;
         }
-
-    }, [isLoading, fs, addNotification]);
+    }, [fs, addNotification]);
 
     const processStream = useCallback(async (userMessage: Message, stream: AsyncGenerator<string>) => {
         if (isLoading) return;
@@ -219,6 +244,162 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
         });
         setIsLoading(false);
     }, [isLoading]);
+
+    // Input classification and response handlers
+    const handleConversationalInput = useCallback(async (classifiedInput: ClassifiedInput) => {
+      setIsLoading(true);
+      setAiStatusPhase('thinking');
+
+      // Simulate brief thinking time for conversational responses
+      setTimeout(() => {
+        setAiStatusPhase('working');
+      }, 500);
+
+      const responses = {
+        greeting: [
+          "Hello! I'm your AI assistant. I'm here to help you with coding, questions, and more!",
+          "Hi there! Ready to help you build something amazing today!",
+          "Hey! Let's create something great together!"
+        ],
+        gratitude: [
+          "You're welcome! Happy to help!",
+          "Glad I could assist you!",
+          "My pleasure! Let me know if you need anything else."
+        ],
+        farewell: [
+          "Goodbye! Have a great day!",
+          "See you later! Don't hesitate to come back if you need help.",
+          "Take care! I'm here whenever you need me."
+        ],
+        general: [
+          "I'm doing well, thank you! How can I help you with your project today?",
+          "I'm here and ready to assist! What would you like to work on?",
+          "Great to hear from you! What can I help you with?"
+        ]
+      };
+
+      const intent = classifiedInput.metadata.intent;
+      const responseArray = responses[intent as keyof typeof responses] || responses.general;
+      const response = responseArray[Math.floor(Math.random() * responseArray.length)];
+
+      const userMessage: Message = { sender: 'user', text: classifiedInput.originalInput };
+      const aiMessage: Message = { sender: 'ai', text: response };
+
+      setTimeout(() => {
+        setMessages(prev => [...prev, userMessage, aiMessage]);
+        setIsLoading(false);
+        setAiStatusPhase('idle');
+      }, 1000);
+    }, []);
+
+    const handleCodeRequest = useCallback(async (classifiedInput: ClassifiedInput) => {
+      // Route to existing code generation logic
+      await sendMessage(classifiedInput.originalInput);
+    }, [sendMessage]);
+
+    const handleQuestionInput = useCallback(async (classifiedInput: ClassifiedInput) => {
+      setIsLoading(true);
+      setAiStatusPhase('thinking');
+
+      const userMessage: Message = { sender: 'user', text: classifiedInput.originalInput };
+      const aiMessagePlaceholder: Message = { sender: 'ai', text: '', isStreaming: true };
+
+      setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
+
+      try {
+        // Transition to reasoning phase for question analysis
+        setAiStatusPhase('reasoning');
+
+        const prompt = `Please provide a clear, helpful answer to this question: "${classifiedInput.originalInput}"
+
+Focus on being informative and concise. If this is about code or development, provide practical examples where relevant.`;
+
+        const stream = streamAIResponse(prompt);
+
+        // Transition to working phase when starting to stream
+        setAiStatusPhase('working');
+
+        let fullResponse = '';
+
+        for await (const chunk of stream) {
+          fullResponse += chunk;
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (lastMessage && lastMessage.sender === 'ai') {
+              lastMessage.text = fullResponse;
+            }
+            return newMessages;
+          });
+        }
+
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.sender === 'ai') {
+            lastMessage.isStreaming = false;
+          }
+          return newMessages;
+        });
+
+      } catch (error) {
+        console.error("Error handling question input:", error);
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.sender === 'ai') {
+            lastMessage.text = "I apologize, but I encountered an error while processing your question. Please try again.";
+            lastMessage.isStreaming = false;
+          }
+          return newMessages;
+        });
+      } finally {
+        setIsLoading(false);
+        setAiStatusPhase('idle');
+      }
+    }, []);
+
+    const handleCommandInput = useCallback(async (classifiedInput: ClassifiedInput) => {
+      const userMessage: Message = { sender: 'user', text: classifiedInput.originalInput };
+      const aiMessage: Message = {
+        sender: 'ai',
+        text: `I understand you'd like to perform a command: "${classifiedInput.originalInput}". However, I don't have direct access to execute system commands. Please use the terminal panel or command palette for system operations.`
+      };
+
+      setMessages(prev => [...prev, userMessage, aiMessage]);
+    }, []);
+
+    const handleAmbiguousInput = useCallback(async (classifiedInput: ClassifiedInput) => {
+      const userMessage: Message = { sender: 'user', text: classifiedInput.originalInput };
+      const aiMessage: Message = {
+        sender: 'ai',
+        text: `I'm not quite sure what you mean by "${classifiedInput.originalInput}". Could you please clarify? I can help you with:\n\n• Writing and generating code\n• Answering questions about development\n• Explaining code concepts\n• Providing guidance on best practices\n\nWhat would you like to work on?`
+      };
+
+      setMessages(prev => [...prev, userMessage, aiMessage]);
+    }, []);
+
+    const handleClassifiedInput = useCallback(async (classifiedInput: ClassifiedInput) => {
+      switch (classifiedInput.type) {
+        case InputType.CONVERSATIONAL:
+          await handleConversationalInput(classifiedInput);
+          break;
+        case InputType.CODE_REQUEST:
+          await handleCodeRequest(classifiedInput);
+          break;
+        case InputType.QUESTION:
+          await handleQuestionInput(classifiedInput);
+          break;
+        case InputType.COMMAND:
+          await handleCommandInput(classifiedInput);
+          break;
+        case InputType.AMBIGUOUS:
+          await handleAmbiguousInput(classifiedInput);
+          break;
+        default:
+          await handleAmbiguousInput(classifiedInput);
+      }
+    }, [handleConversationalInput, handleCodeRequest, handleQuestionInput, handleCommandInput, handleAmbiguousInput]);
 
     const performEditorAction = useCallback(async (action: EditorAIAction, code: string, filePath: string) => {
         let prompt = '';
@@ -253,19 +434,16 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
         }
 
         try {
-            // Apply each action in real-time
+            // Apply each action in real-time (without spam notifications)
             for (const action of actions) {
                 if (action.action === 'create') {
                     if (action.type === 'directory') {
                         await createNode(action.path, 'directory');
-                        addNotification({ type: 'info', message: `Created directory: ${action.path}` });
                     } else if (action.type === 'file') {
                         await createNode(action.path, 'file', action.content || '');
-                        addNotification({ type: 'info', message: `Created file: ${action.path}` });
                     }
                 } else if (action.action === 'update') {
                     await updateNode(action.path, action.content || '');
-                    addNotification({ type: 'info', message: `Updated file: ${action.path}` });
                 }
             }
 
@@ -289,13 +467,18 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
             );
 
             if (hasRelevantChanges && refreshPreview) {
-                // Use a small delay to allow file system to update
-                setTimeout(() => {
-                    refreshPreview();
-                }, 500);
-            }
+                 // Use a small delay to allow file system to update
+                 setTimeout(() => {
+                     refreshPreview();
+                 }, 500);
+             }
 
-            addNotification({ type: 'success', message: `Successfully applied ${actions.length} change(s)!` });
+             // Notify AI completion for terminal automation
+             if (onAICompletion) {
+                 onAICompletion(actions);
+             }
+
+             addNotification({ type: 'success', message: `Successfully applied ${actions.length} change(s)!` });
         } catch (error) {
             console.error("Error applying changes:", error);
             addNotification({
@@ -344,6 +527,7 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
     const value = {
         messages,
         isLoading,
+        aiStatusPhase,
         sendMessage,
         performEditorAction,
         applyChanges,
@@ -353,6 +537,7 @@ export const AIProvider: React.FC<AIProviderProps> = ({ children, activeFile, ge
         openFile,
         setMessages,
         refreshPreview,
+        onAICompletion,
         // Internet access features
         internetAccessEnabled,
         toggleInternetAccess,

@@ -6,8 +6,10 @@
 import React, { useState, useCallback, useRef, createContext, useContext, ReactNode, useEffect } from 'react';
 
 // Providers & Hooks
-import { RemoteVMProvider, useRemoteVM } from './RemoteVMProvider.tsx';
+import { IndexedDBFileSystemProvider, useIndexedDBFileSystem } from './IndexedDBFileSystemProvider.tsx';
+import { VMProviderSwitcher } from './VMProviderSwitcher.tsx';
 import { useFileSystem } from './hooks/useFileSystem.ts';
+import { useSubscription } from '../contexts/SubscriptionContext';
 import { useLocalStorageState } from '../hooks/useLocalStorageState.ts';
 import { ThemeProvider } from './contexts/ThemeContext.tsx';
 import { CommandPaletteProvider, useCommandPalette } from './hooks/useCommandPalette.ts';
@@ -15,97 +17,34 @@ import { allPlugins } from './plugins';
 import { AIProvider } from './contexts/AIContext.tsx';
 import { generateCodeForFile } from './services/aiService.ts';
 import { getAllFiles } from './utils/fsUtils.ts';
-
+import { useNotifications } from './hooks/useNotifications.ts';
+import { useTerminalAutomation } from './hooks/useTerminalAutomation.ts';
 
 // UI Components
 import Loader from './components/Loader.tsx';
-import ResizablePanels from './components/ResizablePanels.tsx';
-import { WebSocketTerminal } from './components/WebSocketTerminal.tsx';
+import { AutomatedSetupPanel } from './components/AutomatedSetupPanel.tsx';
 import EditorPane from './components/EditorPane.tsx';
-import ActivityBar from './components/ActivityBar.tsx';
-import SideBar from './components/SideBar.tsx';
 import FileExplorer from './components/FileExplorer.tsx';
 import TitleBar from './components/TitleBar.tsx';
-import PreviewContainer from './components/PreviewContainer.tsx';
-import TabbedPanel from './components/TabbedPanel.tsx';
 import CommandPalette from './components/CommandPalette.tsx';
 import AiDiffViewModal from './components/AiDiffViewModal.tsx';
 import AiFileGeneratorModal from './components/AiFileGeneratorModal.tsx';
 import AIAssistant from './components/AIAssistant.tsx';
 import LivePreview from './components/LivePreview.tsx';
+import AutonomousDevelopmentPanel from './components/AutonomousDevelopmentPanel.tsx';
 
-// Panel Components
-import SearchPanel from './components/SearchPanel.tsx';
-import SourceControlPanel from './components/SourceControlPanel.tsx';
-import SettingsPanel from './components/SettingsPanel.tsx';
-import ProblemsPanel from './components/ProblemsPanel.tsx';
-import DebugConsolePanel from './components/DebugConsolePanel.tsx';
-import DependencyPanel from './components/DependencyPanel.tsx';
-import StoryboardPanel from './components/StoryboardPanel.tsx';
-import FigmaPanel from './components/FigmaPanel.tsx';
-import ImageToCodePanel from './components/ImageToCodePanel.tsx';
+// New Modular Components
+import IDELayout from './components/IDELayout.tsx';
+import Toolbar from './components/Toolbar.tsx';
+import EditorPanel from './components/EditorPanel.tsx';
+import TerminalPanel from './components/TerminalPanel.tsx';
+import NotificationSystem from './components/NotificationSystem.tsx';
 
-
-import type { Notification, BottomPanelView, FileAction, Diagnostic, ConsoleMessage, DependencyReport, StoryboardComponent, SearchResult, FileSystemNode } from './types.ts';
+import type { BottomPanelView, FileAction, Diagnostic, ConsoleMessage, DependencyReport, StoryboardComponent, SearchResult, FileSystemNode } from './types.ts';
 import { Icons } from './components/Icon.tsx';
 import { analyzeCode } from './services/languageService.ts';
 
 
-// --- NOTIFICATION SYSTEM ---
-const NotificationContext = createContext<{ addNotification: (notification: Omit<Notification, 'id'>) => void; } | undefined>(undefined);
-
-export const useNotifications = () => {
-    const context = useContext(NotificationContext);
-    if (!context) throw new Error('useNotifications must be used within a NotificationProvider');
-    return context;
-};
-
-const NotificationItem: React.FC<{ notification: Notification; onDismiss: () => void }> = ({ notification, onDismiss }) => {
-    const colorClasses = {
-        info: 'bg-blue-500/80',
-        success: 'bg-green-500/80',
-        warning: 'bg-yellow-500/80',
-        error: 'bg-red-500/80',
-    };
-    return (
-        <div className={`flex items-center justify-between w-full max-w-sm p-3 text-white rounded-lg shadow-lg ${colorClasses[notification.type]} backdrop-blur-md animate-fade-in-up`}>
-            <p className="text-sm">{notification.message}</p>
-            <button onClick={onDismiss} className="p-1 rounded-full hover:bg-white-20">
-                <Icons.X className="w-4 h-4" />
-            </button>
-        </div>
-    );
-};
-
-const NotificationContainer: React.FC<{ notifications: Notification[]; removeNotification: (id: string) => void }> = ({ notifications, removeNotification }) => (
-    <div className="fixed bottom-16 right-4 z-[9999] flex flex-col items-end space-y-2">
-        {notifications.map(n => (
-            <NotificationItem key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} />
-        ))}
-    </div>
-);
-
-const NotificationProvider: React.FC<{children: ReactNode}> = ({ children }) => {
-    const [notifications, setNotifications] = useState<Notification[]>([]);
-
-    const removeNotification = useCallback((id: string) => {
-        setNotifications(current => current.filter(n => n.id !== id));
-    }, []);
-
-    const addNotification = useCallback((notification: Omit<Notification, 'id'>) => {
-        const id = Math.random().toString(36).substring(2, 9);
-        setNotifications(current => [...current, { ...notification, id }]);
-        const duration = notification.duration || 5000;
-        setTimeout(() => removeNotification(id), duration);
-    }, [removeNotification]);
-
-    return (
-        <NotificationContext.Provider value={{ addNotification }}>
-            {children}
-            <NotificationContainer notifications={notifications} removeNotification={removeNotification} />
-        </NotificationContext.Provider>
-    );
-};
 
 interface IDEWorkspaceProps {
     onLogout: () => void;
@@ -113,40 +52,42 @@ interface IDEWorkspaceProps {
 }
 
 const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
-    const { isConnected, serverUrl, error, connect } = useRemoteVM();
+    const { isConnected, error, forceSync, getSyncStatus } = useIndexedDBFileSystem();
     const { fs, isLoading: isFsLoading, updateNode, createNode, deleteNode, renameNode, moveNode } = useFileSystem();
     const { registerCommand } = useCommandPalette();
+    const { state: automationState, triggerAutomation } = useTerminalAutomation();
     
-    // UI State
-    const [openFiles, setOpenFiles] = useState<string[]>(['/src/App.jsx']);
-    const [activeTab, setActiveTab] = useState<string | null>('/src/App.jsx');
-    const [activeView, setActiveView] = useState('explorer');
-    const [activeBottomTab, setActiveBottomTab] = useState<BottomPanelView>('terminal');
-    const [panelVisibility, setPanelVisibility] = useState({ activityBar: true, left: true, right: true, bottom: true });
-    const [isZenMode, setIsZenMode] = useState(false);
+    // UI State with Persistence
+    const [openFiles, setOpenFiles] = useLocalStorageState<string[]>('ide-openFiles', ['/src/App.jsx']);
+    const [activeTab, setActiveTab] = useLocalStorageState<string | null>('ide-activeTab', '/src/App.jsx');
+    const [activeView, setActiveView] = useLocalStorageState('ide-activeView', 'explorer');
+    const [activeBottomTab, setActiveBottomTab] = useLocalStorageState<BottomPanelView>('ide-activeBottomTab', 'terminal');
+    const [panelVisibility, setPanelVisibility] = useLocalStorageState('ide-panelVisibility', { activityBar: true, left: true, right: true, bottom: true });
+    const [isZenMode, setIsZenMode] = useLocalStorageState('ide-isZenMode', false);
 
-    // New AI-focused layout state
-    const [showPreview, setShowPreview] = useState(false);
-    const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
-    const [terminalVisible, setTerminalVisible] = useState(false);
+    // Original AI-focused layout state with Persistence
+    const [showPreview, setShowPreview] = useLocalStorageState('ide-showPreview', true);
+    const [fileTreeCollapsed, setFileTreeCollapsed] = useLocalStorageState('ide-fileTreeCollapsed', false);
+    const [terminalVisible, setTerminalVisible] = useLocalStorageState('ide-terminalVisible', true);
+    const [showAutonomousPanel, setShowAutonomousPanel] = useLocalStorageState('ide-showAutonomousPanel', false);
     
-    // Feature State
-    const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-    const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([]);
-    const [dependencyReport, setDependencyReport] = useState<DependencyReport | null>(null);
-    const [storyboardComponents, setStoryboardComponents] = useState<StoryboardComponent[]>([]);
-    const [diffModalState, setDiffModalState] = useState<{ isOpen: boolean; actions: FileAction[], originalFiles: { path: string, content: string }[], messageIndex?: number }>({ isOpen: false, actions: [], originalFiles: [] });
-    const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-    const [isSearching, setIsSearching] = useState(false);
-    const [isFileGeneratorOpen, setIsFileGeneratorOpen] = useState(false);
-    const [fileGenBasePath, setFileGenBasePath] = useState('/');
+    // Feature State with Persistence
+    const [diagnostics, setDiagnostics] = useLocalStorageState<Diagnostic[]>('ide-diagnostics', []);
+    const [consoleMessages, setConsoleMessages] = useLocalStorageState<ConsoleMessage[]>('ide-consoleMessages', []);
+    const [dependencyReport, setDependencyReport] = useLocalStorageState<DependencyReport | null>('ide-dependencyReport', null);
+    const [storyboardComponents, setStoryboardComponents] = useLocalStorageState<StoryboardComponent[]>('ide-storyboardComponents', []);
+    const [diffModalState, setDiffModalState] = useLocalStorageState('ide-diffModalState', { isOpen: false, actions: [], originalFiles: [] });
+    const [searchResults, setSearchResults] = useLocalStorageState<SearchResult[]>('ide-searchResults', []);
+    const [isSearching, setIsSearching] = useLocalStorageState('ide-isSearching', false);
+    const [isFileGeneratorOpen, setIsFileGeneratorOpen] = useLocalStorageState('ide-isFileGeneratorOpen', false);
+    const [fileGenBasePath, setFileGenBasePath] = useLocalStorageState('ide-fileGenBasePath', '/');
     const { addNotification } = useNotifications();
     
     // Config State
     const [githubToken, setGithubToken] = useLocalStorageState<string | null>('githubToken', null);
 
     const previewIframeRef = useRef<HTMLIFrameElement>(null);
-    const [previewKey, setPreviewKey] = useState(0);
+    const [previewKey, setPreviewKey] = useLocalStorageState('ide-previewKey', 0);
 
     const refreshPreview = useCallback(() => {
         // Instead of reloading the entire iframe, try to refresh the content
@@ -313,7 +254,25 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
             category: 'View',
             action: toggleZenMode
         });
-    }, [registerCommand, toggleZenMode]);
+        
+        // Register autonomous development command
+        registerCommand({
+            id: 'autonomous.toggle',
+            label: 'Toggle AI Autonomous Developer',
+            category: 'AI',
+            action: () => setShowAutonomousPanel(!showAutonomousPanel)
+        });
+        
+        registerCommand({
+            id: 'autonomous.build-feature',
+            label: 'Build Feature with AI',
+            category: 'AI',
+            action: () => {
+                setShowAutonomousPanel(true);
+                setTerminalVisible(false);
+            }
+        });
+    }, [registerCommand, toggleZenMode, showAutonomousPanel]);
 
     if (!isConnected || isFsLoading) {
         return <Loader />;
@@ -324,14 +283,14 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
         const isConnectionError = error.includes('connect') || error.includes('backend') || error.includes('server');
 
         return (
-            <div className="w-screen h-screen flex flex-col items-center justify-center bg-red-900/50 text-white p-4">
+            <div className="w-screen h-screen flex flex-col items-center justify-center bg-red-900/80 text-white p-4">
                 <h2 className="text-2xl font-bold mb-4">
                     {isConnectionError ? 'Backend Connection Failed' : 'Environment Setup Required'}
                 </h2>
                 {isConnectionError ? (
                     <div className="text-center mb-4 max-w-2xl">
                         <p className="mb-4">Could not connect to the backend server. Please ensure:</p>
-                        <ul className="text-left list-disc list-inside space-y-2 bg-black/30 p-4 rounded-lg">
+                        <ul className="text-left list-disc list-inside space-y-2 bg-black/60 p-4 rounded-lg">
                             <li>The backend server is running on port 3001</li>
                             <li>You can access http://localhost:3001/health</li>
                             <li>No firewall is blocking the connection</li>
@@ -364,7 +323,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                         <p>Could not initialize the development environment.</p>
                     </div>
                 )}
-                <details className="bg-black/50 p-4 rounded-lg text-sm max-w-2xl">
+                <details className="bg-black/70 p-4 rounded-lg text-sm max-w-2xl">
                     <summary className="cursor-pointer">Technical Details</summary>
                     <pre className="mt-2 overflow-auto">{error}</pre>
                 </details>
@@ -383,11 +342,19 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
             fs={fs}
             setDiffModalState={setDiffModalState}
             refreshPreview={refreshPreview}
+            onAICompletion={triggerAutomation}
         >
-            <div className="w-full h-full bg-transparent flex flex-col p-2 gap-2">
-                 <CommandPalette />
-                 <AiDiffViewModal {...diffModalState} onClose={() => setDiffModalState(prev => ({ ...prev, isOpen: false }))} />
-                 <AiFileGeneratorModal
+            <IDELayout
+                isZenMode={isZenMode}
+                toggleZenMode={toggleZenMode}
+                onLogout={onLogout}
+                onClose={onClose}
+                panelVisibility={panelVisibility}
+                onTogglePanel={togglePanel}
+            >
+                <CommandPalette />
+                <AiDiffViewModal {...diffModalState} onClose={() => setDiffModalState(prev => ({ ...prev, isOpen: false }))} />
+                <AiFileGeneratorModal
                     isOpen={isFileGeneratorOpen}
                     onClose={() => setIsFileGeneratorOpen(false)}
                     onSubmit={handleAiFileSubmit}
@@ -397,7 +364,7 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
 
                 {!isZenMode && <TitleBar onTogglePanel={togglePanel} panelVisibility={panelVisibility} onLogout={onLogout} onClose={onClose} isCrossOriginIsolated={true} />}
 
-                {/* New AI-focused layout */}
+                {/* Original AI-Focused Layout */}
                 <div className="flex-grow flex min-h-0 gap-2">
                     {/* AI Chat Panel (1/3) */}
                     <div className="w-1/3 glass-light overflow-hidden rounded-xl">
@@ -416,40 +383,21 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
 
                     {/* Code Editor Panel (2/3) */}
                     <div className="w-2/3 glass-light overflow-hidden flex flex-col rounded-xl">
-                        {/* Toolbar */}
-                        <div className="p-2 border-b border-white/15 glass-light flex items-center justify-between rounded-t-xl">
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
-                                    className="p-1.5 rounded hover:bg-white-10 transition-colors"
-                                    title={fileTreeCollapsed ? "Show File Tree" : "Hide File Tree"}
-                                >
-                                    <Icons.Folder className="w-4 h-4" />
-                                </button>
-                                <button
-                                    onClick={() => setShowPreview(!showPreview)}
-                                    className={`p-1.5 rounded transition-colors ${showPreview ? 'bg-[var(--accent)]' : 'hover:bg-white-10'}`}
-                                    title={showPreview ? "Show Code Editor" : "Show Preview"}
-                                >
-                                    <Icons.Eye className="w-4 h-4" />
-                                </button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setTerminalVisible(!terminalVisible)}
-                                    className={`p-1.5 rounded transition-colors ${terminalVisible ? 'bg-[var(--accent)]' : 'hover:bg-white-10'}`}
-                                    title={terminalVisible ? "Hide Terminal" : "Show Terminal"}
-                                >
-                                    <Icons.Terminal className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
+                        <Toolbar
+                            fileTreeCollapsed={fileTreeCollapsed}
+                            onToggleFileTree={() => setFileTreeCollapsed(!fileTreeCollapsed)}
+                            showPreview={showPreview}
+                            onTogglePreview={() => setShowPreview(!showPreview)}
+                            terminalVisible={terminalVisible}
+                            onToggleTerminal={() => setTerminalVisible(!terminalVisible)}
+                            showAutonomousPanel={showAutonomousPanel}
+                            onToggleAutonomousPanel={() => setShowAutonomousPanel(!showAutonomousPanel)}
+                        />
 
-                        {/* Main Content Area */}
-                        <div className="flex-grow flex min-h-0">
-                            {/* File Tree (Collapsible) */}
+                        <div className="flex-1 flex">
+                            {/* File Explorer (within 2/3 panel) */}
                             {!fileTreeCollapsed && (
-                                <div className="w-64 border-r border-white/15 glass-overlay rounded-l-xl">
+                                <div className="w-64 border-r border-white/15">
                                     <FileExplorer
                                         fs={fs!}
                                         onFileSelect={handleFileSelect}
@@ -463,42 +411,47 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
                             )}
 
                             {/* Editor/Preview Area */}
-                            <div className="flex-grow flex flex-col">
-                                {showPreview ? (
-                                    <LivePreview
-                                        isVisible={true}
-                                        onToggle={() => setShowPreview(false)}
-                                    />
-                                ) : (
-                                    <EditorPane
-                                        openFiles={openFiles}
-                                        activeTab={activeTab}
-                                        onTabSelect={setActiveTab}
-                                        onTabClose={handleTabClose}
-                                        fileContent={getFileContent(activeTab)}
-                                        onContentChange={handleContentChange}
-                                        editorActions={[]} diagnostics={diagnostics} breakpoints={[]}
-                                        onBreakpointsChange={() => {}} pluginViews={{}}
-                                    />
-                                )}
-
-                                {/* Terminal (Toggleable) */}
-                                {terminalVisible && (
-                                    <div className="h-64 border-t border-white/15 glass-overlay rounded-b-xl">
-                                        <WebSocketTerminal
-                                            terminalId="main-terminal"
-                                            isVisible={terminalVisible}
-                                            onToggle={() => setTerminalVisible(false)}
+                            <div className="flex-1 flex flex-col">
+                                <div className="flex-1">
+                                    {showPreview ? (
+                                        <LivePreview
+                                            isVisible={showPreview}
+                                            onToggle={() => setShowPreview(false)}
+                                            automationState={automationState}
                                         />
+                                    ) : (
+                                        <EditorPane
+                                            openFiles={openFiles}
+                                            activeTab={activeTab}
+                                            onTabSelect={setActiveTab}
+                                            onTabClose={handleTabClose}
+                                            fileContent={getFileContent(activeTab)}
+                                            onContentChange={handleContentChange}
+                                            diagnostics={diagnostics}
+                                            editorActions={[]}
+                                            breakpoints={[]}
+                                            onBreakpointsChange={() => {}}
+                                            pluginViews={{}}
+                                        />
+                                    )}
+                                </div>
+
+                                {/* Terminal or Autonomous Development Panel */}
+                                {terminalVisible && !showAutonomousPanel && (
+                                    <div className="h-64 border-t border-white/15">
+                                        <AutomatedSetupPanel isVisible={terminalVisible} />
                                     </div>
                                 )}
-
-                                {/* Hidden Terminal for Background Setup - Only when preview is shown and terminal is hidden */}
-                                {!terminalVisible && showPreview && (
-                                    <div className="hidden">
-                                        <WebSocketTerminal
-                                            terminalId="background-terminal"
-                                            isVisible={false}
+                                
+                                {/* Autonomous Development Panel */}
+                                {showAutonomousPanel && (
+                                    <div className="h-64 border-t border-white/15">
+                                        <AutonomousDevelopmentPanel
+                                            isVisible={showAutonomousPanel}
+                                            onToggle={() => setShowAutonomousPanel(false)}
+                                            onFileGenerated={(path, content) => {
+                                                handleFileSelect(path);
+                                            }}
                                         />
                                     </div>
                                 )}
@@ -509,31 +462,18 @@ const IDEWorkspace: React.FC<IDEWorkspaceProps> = ({ onLogout, onClose }) => {
 
                 {/* Zen Mode Fullscreen Editor */}
                 {isZenMode && (
-                    <div className="fixed inset-0 z-[10000] glass-overlay">
-                        <div className="absolute top-4 right-4 z-[10001]">
-                            <button
-                                onClick={toggleZenMode}
-                                className="p-2 glass-strong text-white rounded hover:bg-white/10 transition-colors"
-                                title="Exit Zen Mode"
-                            >
-                                <Icons.X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <div className="w-full h-full pt-16">
-                            <EditorPane
-                                openFiles={openFiles}
-                                activeTab={activeTab}
-                                onTabSelect={setActiveTab}
-                                onTabClose={handleTabClose}
-                                fileContent={getFileContent(activeTab)}
-                                onContentChange={handleContentChange}
-                                editorActions={[]} diagnostics={diagnostics} breakpoints={[]}
-                                onBreakpointsChange={() => {}} pluginViews={{}}
-                            />
-                        </div>
-                    </div>
+                    <EditorPane
+                        openFiles={openFiles}
+                        activeTab={activeTab}
+                        onTabSelect={setActiveTab}
+                        onTabClose={handleTabClose}
+                        fileContent={getFileContent(activeTab)}
+                        onContentChange={handleContentChange}
+                        editorActions={[]} diagnostics={diagnostics} breakpoints={[]}
+                        onBreakpointsChange={() => {}} pluginViews={{}}
+                    />
                 )}
-            </div>
+            </IDELayout>
         </AIProvider>
     );
 };
@@ -547,11 +487,13 @@ const App: React.FC<AppProps> = ({ onLogout, onClose }) => {
     return (
         <ThemeProvider>
             <CommandPaletteProvider>
-                <NotificationProvider>
-                    <RemoteVMProvider>
-                        <IDEWorkspace onLogout={onLogout} onClose={onClose} />
-                    </RemoteVMProvider>
-                </NotificationProvider>
+                <NotificationSystem>
+                    <IndexedDBFileSystemProvider>
+                        <VMProviderSwitcher>
+                            <IDEWorkspace onLogout={onLogout} onClose={onClose} />
+                        </VMProviderSwitcher>
+                    </IndexedDBFileSystemProvider>
+                </NotificationSystem>
             </CommandPaletteProvider>
         </ThemeProvider>
     );

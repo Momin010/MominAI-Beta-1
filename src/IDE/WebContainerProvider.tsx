@@ -1,195 +1,417 @@
-
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { WebContainer } from '@webcontainer/api';
-import type { WebContainer as WebContainerType } from '@webcontainer/api';
-import { files as defaultFiles } from './defaultFiles.ts';
+import { registerWebContainerServer, unregisterWebContainerServer } from '../../api/webcontainer-proxy/[...path]';
+import fileSystemSync from './services/fileSystemSync';
 
-interface WebContainerContextType {
-    webContainer: WebContainerType | null;
-    isLoading: boolean;
-    serverUrl: string | null;
-    error: string | null;
-    fs: WebContainerType['fs'] | null;
-    runCommand: (command: string, args: string[]) => Promise<void>;
-    isCrossOriginIsolated: boolean;
-    memoryUsage: { used: number; total: number; percentage: number } | null;
-    restartContainer: () => Promise<void>;
+interface DevServer {
+    url: string;
+    port: number;
+    framework: string;
+    status: 'starting' | 'running' | 'stopped';
+    proxyUrl?: string;
 }
 
-const WebContainerContext = createContext<WebContainerContextType | undefined>(undefined);
+interface RemoteVMContextType {
+    isConnected: boolean;
+    serverUrl: string | null;
+    error: string | null;
+    container: WebContainer | null;
+    terminals: Map<string, any>;
+    processes: Map<string, any>;
+    devServers: DevServer[];
+    connect: () => Promise<void>;
+    disconnect: () => void;
+    createTerminal: (terminalId: string) => void;
+    runCommand: (command: string, args?: string[], cwd?: string, env?: Record<string, string>) => Promise<string>;
+    stopProcess: (processId: string) => void;
+    readFile: (path: string) => void;
+    writeFile: (path: string, content: string) => void;
+    listDirectory: (path: string) => void;
+    createDirectory: (path: string) => void;
+    deleteFile: (path: string) => void;
+    startDevServer: (cwd?: string, port?: number) => void;
+    onTerminalOutput: (callback: (data: any) => void) => void;
+    onProcessOutput: (callback: (data: any) => void) => void;
+    onFileContent: (callback: (data: any) => void) => void;
+    onDirectoryListing: (callback: (data: any) => void) => void;
+}
 
-export const useWebContainer = () => {
-    const context = useContext(WebContainerContext);
+const RemoteVMContext = createContext<RemoteVMContextType | undefined>(undefined);
+
+export const useRemoteVM = () => {
+    const context = useContext(RemoteVMContext);
     if (!context) {
-        throw new Error('useWebContainer must be used within a WebContainerProvider');
+        throw new Error('useRemoteVM must be used within a RemoteVMProvider');
     }
     return context;
 };
 
-export const WebContainerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [webContainer, setWebContainer] = useState<WebContainerType | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+interface RemoteVMProviderProps {
+    children: ReactNode;
+    sessionId?: string;
+}
+
+// Global WebContainer singleton to prevent multiple instances
+let globalWebContainer: WebContainer | null = null;
+let globalContainerPromise: Promise<WebContainer> | null = null;
+
+export const WebContainerProvider: React.FC<RemoteVMProviderProps> = ({
+    children,
+    sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}) => {
+    const [isConnected, setIsConnected] = useState(false);
     const [serverUrl, setServerUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number; percentage: number } | null>(null);
-    const isBooted = useRef(false);
-    const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [terminals] = useState(new Map());
+    const [processes] = useState(new Map());
+    const [container, setContainer] = useState<WebContainer | null>(null);
+    const [devServers, setDevServers] = useState<DevServer[]>([]);
 
-    // Memory monitoring function
-    const updateMemoryUsage = useCallback(() => {
-        if (typeof performance !== 'undefined' && (performance as any).memory) {
-            const memInfo = (performance as any).memory;
-            const used = memInfo.usedJSHeapSize;
-            const total = memInfo.totalJSHeapSize;
-            const percentage = (used / total) * 100;
+    // Callback arrays
+    const [terminalOutputCallbacks] = useState<Array<(data: any) => void>>([]);
+    const [processOutputCallbacks] = useState<Array<(data: any) => void>>([]);
+    const [fileContentCallbacks] = useState<Array<(data: any) => void>>([]);
+    const [directoryListingCallbacks] = useState<Array<(data: any) => void>>([]);
 
-            setMemoryUsage({ used, total, percentage });
+    const connect = useCallback(async () => {
+        try {
+            setError(null);
+            console.log('🔌 Getting WebContainer instance...');
+            
+            // Check if we already have a global instance
+            if (globalWebContainer) {
+                console.log('♻️ Reusing existing WebContainer instance');
+                setContainer(globalWebContainer);
+                // Ensure file system sync has the WebContainer instance
+                fileSystemSync.setWebContainer(globalWebContainer);
+                try {
+                    await fileSystemSync.syncToWebContainer();
+                } catch (error) {
+                    console.error('Failed to sync to WebContainer:', error);
+                }
+                setIsConnected(true);
+                setServerUrl(null);
+                return;
+            }
+            
+            // Check if we're already booting
+            if (globalContainerPromise) {
+                console.log('⏳ Waiting for existing WebContainer boot...');
+                const webContainer = await globalContainerPromise;
+                setContainer(webContainer);
+                // Ensure file system sync has the WebContainer instance
+                fileSystemSync.setWebContainer(webContainer);
+                try {
+                    await fileSystemSync.syncToWebContainer();
+                } catch (error) {
+                    console.error('Failed to sync to WebContainer:', error);
+                }
+                setIsConnected(true);
+                setServerUrl(null);
+                return;
+            }
+            
+            // Boot new instance
+            console.log('🚀 Booting new WebContainer instance...');
+            globalContainerPromise = WebContainer.boot();
+            const webContainer = await globalContainerPromise;
+            
+            globalWebContainer = webContainer;
+            setContainer(webContainer);
+            // Initialize file system sync with WebContainer instance
+            fileSystemSync.setWebContainer(webContainer);
+            try {
+                await fileSystemSync.syncToWebContainer();
+            } catch (error) {
+                console.error('Failed to sync to WebContainer:', error);
+            }
+            setIsConnected(true);
+            setServerUrl(null);
+            console.log('✅ WebContainer booted successfully');
+            
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to boot WebContainer';
+            console.error('❌ WebContainer boot failed:', errorMessage);
+            globalContainerPromise = null; // Reset on failure
+            setError(errorMessage);
+            throw error;
+        }
+    }, []);
 
-            // Warn if memory usage is high
-            if (percentage > 80) {
-                console.warn(`High memory usage: ${percentage.toFixed(1)}%`);
+    const disconnect = useCallback(() => {
+        // Don't destroy the global instance, just disconnect this provider
+        setContainer(null);
+        setIsConnected(false);
+        setServerUrl(null);
+        setError(null);
+        terminals.clear();
+        processes.clear();
+
+        // Unregister all dev servers
+        devServers.forEach(server => {
+            unregisterWebContainerServer(sessionId);
+        });
+        setDevServers([]);
+    }, [terminals, processes, devServers, sessionId]);
+
+    const createTerminal = useCallback((terminalId: string) => {
+        if (!container) return;
+        // For WebContainer, we can spawn a shell process
+        const shellProcess = container.spawn('sh', [], { cwd: '/' });
+        terminals.set(terminalId, shellProcess);
+        console.log(`Terminal ${terminalId} created`);
+    }, [container, terminals]);
+
+    const runCommand = useCallback(async (command: string, args: string[] = [], cwd = '/', env: Record<string, string> = {}) => {
+        if (!container) throw new Error('WebContainer not connected');
+
+        const processId = `process_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const process = await container.spawn(command, args, { cwd, env });
+
+        processes.set(processId, process);
+
+        // Listen to output
+        process.output.pipeTo(new WritableStream({
+            write(data) {
+                processOutputCallbacks.forEach(callback => callback({ processId, data }));
+            }
+        }));
+
+        return processId;
+    }, [container, processes, processOutputCallbacks]);
+
+    const stopProcess = useCallback((processId: string) => {
+        const process = processes.get(processId);
+        if (process) {
+            process.kill();
+            processes.delete(processId);
+        }
+    }, [processes]);
+
+    const readFile = useCallback(async (path: string) => {
+        if (!container) return;
+        try {
+            const content = await container.fs.readFile(path, 'utf8');
+            fileContentCallbacks.forEach(callback => callback({ path, content }));
+        } catch (error) {
+            console.error('Error reading file:', error);
+        }
+    }, [container, fileContentCallbacks]);
+
+    const writeFile = useCallback(async (path: string, content: string) => {
+        if (!container) return;
+        try {
+            await container.fs.writeFile(path, content);
+        } catch (error) {
+            console.error('Error writing file:', error);
+        }
+    }, [container]);
+
+    const listDirectory = useCallback(async (path: string) => {
+        if (!container) return;
+        try {
+            const files = await container.fs.readdir(path);
+            directoryListingCallbacks.forEach(callback => callback({ path, files }));
+        } catch (error) {
+            console.error('Error listing directory:', error);
+        }
+    }, [container, directoryListingCallbacks]);
+
+    const createDirectory = useCallback(async (path: string) => {
+        if (!container) return;
+        try {
+            await container.fs.mkdir(path, { recursive: true });
+        } catch (error) {
+            console.error('Error creating directory:', error);
+        }
+    }, [container]);
+
+    const deleteFile = useCallback(async (path: string) => {
+        if (!container) return;
+        try {
+            await container.fs.rm(path, { recursive: true });
+        } catch (error) {
+            console.error('Error deleting file:', error);
+        }
+    }, [container]);
+
+    // Detect dev server from terminal output
+    const detectDevServer = useCallback((output: string) => {
+        const urlPatterns = [
+            // Vite
+            /Local:\s+(http:\/\/localhost:\d+)/i,
+            /Network:\s+(http:\/\/[\d\.]+:\d+)/i,
+            // React
+            /Local:\s+(http:\/\/localhost:\d+)/i,
+            // Next.js
+            /ready\s+-\s+started\s+server\s+on\s+(http:\/\/localhost:\d+)/i,
+            // Generic localhost URLs
+            /(http:\/\/localhost:\d+)/g,
+            /(http:\/\/127\.0\.0\.1:\d+)/g,
+            /(http:\/\/[\d\.]+:\d+)/g
+        ];
+
+        for (const pattern of urlPatterns) {
+            const matches = output.match(pattern);
+            if (matches) {
+                for (const match of matches) {
+                    const url = match.trim();
+                    const portMatch = url.match(/:(\d+)/);
+                    if (portMatch) {
+                        const port = parseInt(portMatch[1]);
+                        const framework = detectFramework(output);
+
+                        const newServer: DevServer = {
+                            url,
+                            port,
+                            framework,
+                            status: 'running'
+                        };
+
+                        setDevServers(prev => {
+                            const existing = prev.find(s => s.url === url);
+                            if (!existing) {
+                                console.log('🎯 Detected dev server:', newServer);
+                                // Register with proxy
+                                registerServerWithProxy(newServer);
+                                return [...prev, newServer];
+                            }
+                            return prev;
+                        });
+                    }
+                }
             }
         }
     }, []);
 
-    // Restart container function
-    const restartContainer = useCallback(async () => {
-        console.log('Restarting WebContainer...');
-
-        // Clear any existing restart timeout
-        if (restartTimeoutRef.current) {
-            clearTimeout(restartTimeoutRef.current);
-            restartTimeoutRef.current = null;
-        }
-
-        // Kill existing container
-        if (webContainer) {
-            try {
-                // Attempt to teardown existing container
-                setWebContainer(null);
-                setServerUrl(null);
-                setError(null);
-            } catch (e) {
-                console.log('Error during container teardown:', e);
-            }
-        }
-
-        // Reset boot flag to allow re-initialization
-        isBooted.current = false;
-
-        // Small delay before restart
-        setTimeout(() => {
-            setIsLoading(true);
-            setError(null);
-            // The useEffect will automatically restart the container
-        }, 1000);
-    }, [webContainer]);
-
-    useEffect(() => {
-        const boot = async () => {
-            if (isBooted.current) return;
-            isBooted.current = true;
-
-            // Check for cross-origin isolation requirements
-            const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
-            const isIsolated = self.crossOriginIsolated;
-
-            console.log("SharedArrayBuffer available:", hasSharedArrayBuffer);
-            console.log("Cross-origin isolated:", isIsolated);
-
-            if (!hasSharedArrayBuffer || !isIsolated) {
-                const errorMsg = "WebContainer requires cross-origin isolation. Please ensure your browser supports SharedArrayBuffer and the page is served with proper COEP/COOP headers.";
-                console.error(errorMsg);
-                setError(errorMsg);
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                console.log("Booting WebContainer...");
-                const wc = await WebContainer.boot();
-                setWebContainer(wc);
-
-                console.log("Mounting default files...");
-                await wc.mount(defaultFiles);
-
-                wc.on('server-ready', (port, url) => {
-                    console.log(`Server ready at ${url}`);
-                    setServerUrl(url);
-                });
-
-                wc.on('error', (err) => {
-                    console.error("WebContainer Error:", err);
-                    setError(err.message);
-                });
-
-                // UI is ready to be shown, setup will continue in the terminal
-                setIsLoading(false);
-
-            } catch (err) {
-                console.error("Failed to initialize WebContainer:", err);
-                let errorMsg = err instanceof Error ? err.message : String(err);
-
-                if (err instanceof Error && err.name === 'DataCloneError') {
-                    errorMsg = "DataCloneError: Cross-origin isolation may not be properly configured. Please check that COEP and COOP headers are set correctly.";
-                }
-
-                setError(errorMsg);
-                setIsLoading(false);
-            }
-        };
-
-        boot();
-
-        // Start memory monitoring
-        const memoryInterval = setInterval(updateMemoryUsage, 5000); // Check every 5 seconds
-
-        return () => {
-            clearInterval(memoryInterval);
-            if (restartTimeoutRef.current) {
-                clearTimeout(restartTimeoutRef.current);
-            }
-        };
-    }, [updateMemoryUsage]);
-    
-
-    const runCommand = async (command: string, args: string[]) => {
-        if (!webContainer) return;
-
-        try {
-            const process = await webContainer.spawn(command, args, {
-                cwd: '/',
-                env: { NODE_OPTIONS: '--max-old-space-size=256' }
-            });
-
-            // Monitor memory after command execution
-            const result = await process.exit;
-            updateMemoryUsage();
-
-            if (result !== 0) {
-                console.error(`Command "${command} ${args.join(' ')}" failed with exit code ${result}`);
-            }
-        } catch (error) {
-            console.error(`Failed to run command "${command} ${args.join(' ')}":`, error);
-            updateMemoryUsage();
-        }
+    const detectFramework = (output: string): string => {
+        if (output.includes('VITE')) return 'Vite';
+        if (output.includes('React')) return 'React';
+        if (output.includes('Next.js')) return 'Next.js';
+        if (output.includes('Vue')) return 'Vue';
+        if (output.includes('Angular')) return 'Angular';
+        return 'Unknown';
     };
 
-    const value = {
-        webContainer,
-        isLoading,
+    const registerServerWithProxy = useCallback(async (server: DevServer) => {
+        if (!container) return;
+
+        try {
+            // For WebContainer, the server is automatically exposed
+            // We'll use the detected server URL as the base and create a proxy mapping
+            const proxyUrl = `/api/webcontainer-proxy/${sessionId}`;
+
+            // Register with the proxy API - we'll pass the detected server info
+            await fetch('/api/webcontainer-proxy/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId,
+                    url: server.url,
+                    port: server.port
+                })
+            });
+
+            // Update the server with proxy URL
+            setDevServers(prev => prev.map(s =>
+                s.url === server.url
+                    ? { ...s, proxyUrl: `${proxyUrl}` }
+                    : s
+            ));
+
+            console.log('✅ Registered server with proxy:', server.url, '->', proxyUrl);
+        } catch (error) {
+            console.error('❌ Failed to register server with proxy:', error);
+        }
+    }, [container, sessionId]);
+
+    const startDevServer = useCallback(async (cwd = '/', port = 5173) => {
+        if (!container) return;
+        // Run npm run dev in the container
+        await runCommand('npm', ['run', 'dev'], cwd, { PORT: port.toString() });
+    }, [container, runCommand]);
+
+    const onTerminalOutput = useCallback((callback: (data: any) => void) => {
+        terminalOutputCallbacks.push(callback);
+    }, [terminalOutputCallbacks]);
+
+    const onProcessOutput = useCallback((callback: (data: any) => void) => {
+        processOutputCallbacks.push(callback);
+    }, [processOutputCallbacks]);
+
+    const onFileContent = useCallback((callback: (data: any) => void) => {
+        fileContentCallbacks.push(callback);
+    }, [fileContentCallbacks]);
+
+    const onDirectoryListing = useCallback((callback: (data: any) => void) => {
+        directoryListingCallbacks.push(callback);
+    }, [directoryListingCallbacks]);
+
+    // Auto-connect on mount
+    useEffect(() => {
+        const autoConnect = async () => {
+            try {
+                console.log('🚀 Starting WebContainer auto-connect...');
+                await connect();
+                console.log('✅ WebContainer auto-connected successfully');
+            } catch (error) {
+                console.error('❌ Auto-connect failed:', error);
+                setError('Failed to boot WebContainer');
+                setIsConnected(false);
+            }
+        };
+
+        const timer = setTimeout(autoConnect, 1000);
+        return () => clearTimeout(timer);
+    }, [connect]);
+
+    // Listen for process output to detect dev servers
+    useEffect(() => {
+        const handleProcessOutput = (data: any) => {
+            console.log('🔍 WebContainer process output:', data);
+            if (data && data.data) {
+                detectDevServer(data.data);
+            } else if (typeof data === 'string') {
+                detectDevServer(data);
+            }
+        };
+
+        // Subscribe to process output
+        onProcessOutput(handleProcessOutput);
+
+        return () => {
+            // Cleanup will be handled by the callback cleanup
+        };
+    }, [onProcessOutput, detectDevServer]);
+
+    const value: RemoteVMContextType = {
+        isConnected,
         serverUrl,
         error,
-        fs: webContainer?.fs || null,
+        container,
+        terminals,
+        processes,
+        devServers,
+        connect,
+        disconnect,
+        createTerminal,
         runCommand,
-        isCrossOriginIsolated: typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated,
-        memoryUsage,
-        restartContainer,
+        stopProcess,
+        readFile,
+        writeFile,
+        listDirectory,
+        createDirectory,
+        deleteFile,
+        startDevServer,
+        onTerminalOutput,
+        onProcessOutput,
+        onFileContent,
+        onDirectoryListing,
     };
 
     return (
-        <WebContainerContext.Provider value={value}>
+        <RemoteVMContext.Provider value={value}>
             {children}
-        </WebContainerContext.Provider>
+        </RemoteVMContext.Provider>
     );
 };

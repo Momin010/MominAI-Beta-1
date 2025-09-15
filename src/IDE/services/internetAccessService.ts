@@ -1,6 +1,8 @@
 // Internet Access Service - Safely removable module
 // This entire file can be deleted to remove internet access features
 
+import { encryptionService } from './encryptionService';
+
 export interface CompanyInfo {
     name: string;
     url: string;
@@ -36,24 +38,50 @@ export interface SketchfabModel {
 }
 
 class InternetAccessService {
-    private isEnabled: boolean = false;
+    private isEnabled: boolean = true;
 
     constructor() {
-        this.loadSettings();
+        // Initialize encryption service and load settings asynchronously
+        this.initializeService();
     }
 
-    private loadSettings() {
+    private async initializeService() {
         try {
-            this.isEnabled = localStorage.getItem('internetAccessEnabled') === 'true';
-        } catch {
+            await encryptionService.initialize();
+            await this.loadSettings();
+        } catch (error) {
+            console.error('Failed to initialize internet access service:', error);
             this.isEnabled = false;
         }
     }
 
-    public setEnabled(enabled: boolean) {
+    private async loadSettings() {
+        try {
+            const storedValue = localStorage.getItem('internetAccessEnabled');
+            if (storedValue && encryptionService.isEncrypted(storedValue)) {
+                // Decrypt the stored value
+                const decrypted = await encryptionService.decrypt(storedValue);
+                this.isEnabled = decrypted === 'true';
+            } else {
+                // Handle legacy unencrypted value
+                this.isEnabled = storedValue === 'true';
+                // Encrypt and re-store if it was unencrypted
+                if (storedValue) {
+                    await this.setEnabled(this.isEnabled);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load internet access settings:', error);
+            this.isEnabled = false;
+        }
+    }
+
+    public async setEnabled(enabled: boolean) {
         this.isEnabled = enabled;
         try {
-            localStorage.setItem('internetAccessEnabled', enabled.toString());
+            // Encrypt the setting before storing
+            const encryptedValue = await encryptionService.encrypt(enabled.toString());
+            localStorage.setItem('internetAccessEnabled', encryptedValue);
         } catch (error) {
             console.warn('Failed to save internet access setting:', error);
         }

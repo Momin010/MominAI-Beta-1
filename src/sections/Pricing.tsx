@@ -16,7 +16,7 @@ const PricingCard: React.FC<PricingCardProps> = ({ plan, onHobbyClick }) => {
     const renderButton = () => {
         const commonClasses = "w-full mt-4 p-3 rounded-lg cursor-pointer font-semibold text-sm transition-all duration-200 hover:scale-105 active:scale-100 flex items-center justify-center no-underline";
         const popularClasses = `bg-transparent border-2 border-[var(--accent)] text-white hover:bg-[var(--accent)]`;
-        const defaultClasses = `bg-transparent border border-[var(--border-color)] text-[var(--foreground)] hover:bg-white-10`;
+        const defaultClasses = `bg-transparent border border-[var(--border-color)] text-[var(--foreground)] hover:bg-white/10`;
 
         switch (plan.name) {
             case 'Hobby':
